@@ -1,0 +1,19 @@
+{
+  "name": "appstax",
+  "version": "0.9.4",
+  "authors": [
+    "Appstax Technologies AS"
+  ],
+  "description": "Appstax JavaScript SDK",
+  "main": "appstax.js",
+  "ignore": [
+    "README.md"
+  ],
+  "moduleType": [
+    "amd",
+    "globals",
+    "node"
+  ],
+  "license": "MIT",
+  "homepage": "https://appstax.com/"
+}
