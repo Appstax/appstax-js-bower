@@ -4,79 +4,79 @@ var toString = Object.prototype.toString;
 var undefined;
 
 var isPlainObject = function isPlainObject(obj) {
-	"use strict";
-	if (!obj || toString.call(obj) !== '[object Object]' || obj.nodeType || obj.setInterval) {
-		return false;
-	}
+  "use strict";
+  if (!obj || toString.call(obj) !== '[object Object]' || obj.nodeType || obj.setInterval) {
+    return false;
+  }
 
-	var has_own_constructor = hasOwn.call(obj, 'constructor');
-	var has_is_property_of_method = obj.constructor && obj.constructor.prototype && hasOwn.call(obj.constructor.prototype, 'isPrototypeOf');
-	// Not own constructor property must be Object
-	if (obj.constructor && !has_own_constructor && !has_is_property_of_method) {
-		return false;
-	}
+  var has_own_constructor = hasOwn.call(obj, 'constructor');
+  var has_is_property_of_method = obj.constructor && obj.constructor.prototype && hasOwn.call(obj.constructor.prototype, 'isPrototypeOf');
+  // Not own constructor property must be Object
+  if (obj.constructor && !has_own_constructor && !has_is_property_of_method) {
+    return false;
+  }
 
-	// Own properties are enumerated firstly, so to speed up,
-	// if last one is own, then all properties are own.
-	var key;
-	for (key in obj) {}
+  // Own properties are enumerated firstly, so to speed up,
+  // if last one is own, then all properties are own.
+  var key;
+  for (key in obj) {}
 
-	return key === undefined || hasOwn.call(obj, key);
+  return key === undefined || hasOwn.call(obj, key);
 };
 
 module.exports = function extend() {
-	"use strict";
-	var options, name, src, copy, copyIsArray, clone,
-		target = arguments[0],
-		i = 1,
-		length = arguments.length,
-		deep = false;
+  "use strict";
+  var options, name, src, copy, copyIsArray, clone,
+    target = arguments[0],
+    i = 1,
+    length = arguments.length,
+    deep = false;
 
-	// Handle a deep copy situation
-	if (typeof target === "boolean") {
-		deep = target;
-		target = arguments[1] || {};
-		// skip the boolean and the target
-		i = 2;
-	} else if (typeof target !== "object" && typeof target !== "function" || target == undefined) {
-			target = {};
-	}
+  // Handle a deep copy situation
+  if (typeof target === "boolean") {
+    deep = target;
+    target = arguments[1] || {};
+    // skip the boolean and the target
+    i = 2;
+  } else if (typeof target !== "object" && typeof target !== "function" || target == undefined) {
+      target = {};
+  }
 
-	for (; i < length; ++i) {
-		// Only deal with non-null/undefined values
-		if ((options = arguments[i]) != null) {
-			// Extend the base object
-			for (name in options) {
-				src = target[name];
-				copy = options[name];
+  for (; i < length; ++i) {
+    // Only deal with non-null/undefined values
+    if ((options = arguments[i]) != null) {
+      // Extend the base object
+      for (name in options) {
+        src = target[name];
+        copy = options[name];
 
-				// Prevent never-ending loop
-				if (target === copy) {
-					continue;
-				}
+        // Prevent never-ending loop
+        if (target === copy) {
+          continue;
+        }
 
-				// Recurse if we're merging plain objects or arrays
-				if (deep && copy && (isPlainObject(copy) || (copyIsArray = Array.isArray(copy)))) {
-					if (copyIsArray) {
-						copyIsArray = false;
-						clone = src && Array.isArray(src) ? src : [];
-					} else {
-						clone = src && isPlainObject(src) ? src : {};
-					}
+        // Recurse if we're merging plain objects or arrays
+        if (deep && copy && (isPlainObject(copy) || (copyIsArray = Array.isArray(copy)))) {
+          if (copyIsArray) {
+            copyIsArray = false;
+            clone = src && Array.isArray(src) ? src : [];
+          } else {
+            clone = src && isPlainObject(src) ? src : {};
+          }
 
-					// Never move original objects, clone them
-					target[name] = extend(deep, clone, copy);
+          // Never move original objects, clone them
+          target[name] = extend(deep, clone, copy);
 
-				// Don't bring in undefined values
-				} else if (copy !== undefined) {
-					target[name] = copy;
-				}
-			}
-		}
-	}
+        // Don't bring in undefined values
+        } else if (copy !== undefined) {
+          target[name] = copy;
+        }
+      }
+    }
+  }
 
-	// Return the modified object
-	return target;
+  // Return the modified object
+  return target;
 };
 
 
@@ -1522,7 +1522,7 @@ function urlFromTemplate(template, parameters) {
 }
 
 function uriEncode(string) {
-    return encodeURIComponent(string).replace(/%20/g, "+").replace(/'/g, "%27");
+    return encodeURIComponent(string).replace(/'/g, "%27");
 }
 
 function request(method, url, data) {
@@ -1838,7 +1838,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
 /*jslint white: true, browser: true, onevar: true, undef: true, nomen: true,
-	eqeqeq: true, plusplus: true, regexp: true, newcap: true, immed: true */
+  eqeqeq: true, plusplus: true, regexp: true, newcap: true, immed: true */
 // (good parts minus bitwise and strict, plus white.)
 
 /**
@@ -1876,170 +1876,170 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
 module.exports = {
-	create: function(options) {
-		return new Nibbler(options);
-	}
+  create: function(options) {
+    return new Nibbler(options);
+  }
 }
 
 
 var Nibbler = function (options) {
-	"use strict";
+  "use strict";
 
-	// Code quality tools like jshint warn about bitwise operators,
-	// because they're easily confused with other more common operators,
-	// and because they're often misused for doing arithmetic.  Nibbler uses
-	// them properly, though, for moving individual bits, so turn off the warning.
-	/*jshint bitwise:false */
+  // Code quality tools like jshint warn about bitwise operators,
+  // because they're easily confused with other more common operators,
+  // and because they're often misused for doing arithmetic.  Nibbler uses
+  // them properly, though, for moving individual bits, so turn off the warning.
+  /*jshint bitwise:false */
 
-	var construct,
+  var construct,
 
-		// options
-		pad, dataBits, codeBits, keyString, arrayData,
+    // options
+    pad, dataBits, codeBits, keyString, arrayData,
 
-		// private instance variables
-		mask, group, max,
+    // private instance variables
+    mask, group, max,
 
-		// private methods
-		gcd, translate,
+    // private methods
+    gcd, translate,
 
-		// public methods
-		encode, decode;
+    // public methods
+    encode, decode;
 
-	// pseudo-constructor
-	construct = function () {
-		var i, mag, prev;
+  // pseudo-constructor
+  construct = function () {
+    var i, mag, prev;
 
-		// options
-		pad = options.pad || '';
-		dataBits = options.dataBits;
-		codeBits = options.codeBits;
-		keyString = options.keyString;
-		arrayData = options.arrayData;
+    // options
+    pad = options.pad || '';
+    dataBits = options.dataBits;
+    codeBits = options.codeBits;
+    keyString = options.keyString;
+    arrayData = options.arrayData;
 
-		// bitmasks
-		mag = Math.max(dataBits, codeBits);
-		prev = 0;
-		mask = [];
-		for (i = 0; i < mag; i += 1) {
-			mask.push(prev);
-			prev += prev + 1;
-		}
-		max = prev;
+    // bitmasks
+    mag = Math.max(dataBits, codeBits);
+    prev = 0;
+    mask = [];
+    for (i = 0; i < mag; i += 1) {
+      mask.push(prev);
+      prev += prev + 1;
+    }
+    max = prev;
 
-		// ouput code characters in multiples of this number
-		group = dataBits / gcd(dataBits, codeBits);
-	};
+    // ouput code characters in multiples of this number
+    group = dataBits / gcd(dataBits, codeBits);
+  };
 
-	// greatest common divisor
-	gcd = function (a, b) {
-		var t;
-		while (b !== 0) {
-			t = b;
-			b = a % b;
-			a = t;
-		}
-		return a;
-	};
+  // greatest common divisor
+  gcd = function (a, b) {
+    var t;
+    while (b !== 0) {
+      t = b;
+      b = a % b;
+      a = t;
+    }
+    return a;
+  };
 
-	// the re-coder
-	translate = function (input, bitsIn, bitsOut, decoding) {
-		var i, len, chr, byteIn,
-			buffer, size, output,
-			write;
+  // the re-coder
+  translate = function (input, bitsIn, bitsOut, decoding) {
+    var i, len, chr, byteIn,
+      buffer, size, output,
+      write;
 
-		// append a byte to the output
-		write = function (n) {
-			if (!decoding) {
-				output.push(keyString.charAt(n));
-			} else if (arrayData) {
-				output.push(n);
-			} else {
-				output.push(String.fromCharCode(n));
-			}
-		};
+    // append a byte to the output
+    write = function (n) {
+      if (!decoding) {
+        output.push(keyString.charAt(n));
+      } else if (arrayData) {
+        output.push(n);
+      } else {
+        output.push(String.fromCharCode(n));
+      }
+    };
 
-		buffer = 0;
-		size = 0;
-		output = [];
+    buffer = 0;
+    size = 0;
+    output = [];
 
-		len = input.length;
-		for (i = 0; i < len; i += 1) {
-			// the new size the buffer will be after adding these bits
-			size += bitsIn;
+    len = input.length;
+    for (i = 0; i < len; i += 1) {
+      // the new size the buffer will be after adding these bits
+      size += bitsIn;
 
-			// read a character
-			if (decoding) {
-				// decode it
-				chr = input.charAt(i);
-				byteIn = keyString.indexOf(chr);
-				if (chr === pad) {
-					break;
-				} else if (byteIn < 0) {
-					throw 'the character "' + chr + '" is not a member of ' + keyString;
-				}
-			} else {
-				if (arrayData) {
-					byteIn = input[i];
-				} else {
-					byteIn = input.charCodeAt(i);
-				}
-				if ((byteIn | max) !== max) {
-					throw byteIn + " is outside the range 0-" + max;
-				}
-			}
+      // read a character
+      if (decoding) {
+        // decode it
+        chr = input.charAt(i);
+        byteIn = keyString.indexOf(chr);
+        if (chr === pad) {
+          break;
+        } else if (byteIn < 0) {
+          throw 'the character "' + chr + '" is not a member of ' + keyString;
+        }
+      } else {
+        if (arrayData) {
+          byteIn = input[i];
+        } else {
+          byteIn = input.charCodeAt(i);
+        }
+        if ((byteIn | max) !== max) {
+          throw byteIn + " is outside the range 0-" + max;
+        }
+      }
 
-			// shift the buffer to the left and add the new bits
-			buffer = (buffer << bitsIn) | byteIn;
+      // shift the buffer to the left and add the new bits
+      buffer = (buffer << bitsIn) | byteIn;
 
-			// as long as there's enough in the buffer for another output...
-			while (size >= bitsOut) {
-				// the new size the buffer will be after an output
-				size -= bitsOut;
+      // as long as there's enough in the buffer for another output...
+      while (size >= bitsOut) {
+        // the new size the buffer will be after an output
+        size -= bitsOut;
 
-				// output the part that lies to the left of that number of bits
-				// by shifting the them to the right
-				write(buffer >> size);
+        // output the part that lies to the left of that number of bits
+        // by shifting the them to the right
+        write(buffer >> size);
 
-				// remove the bits we wrote from the buffer
-				// by applying a mask with the new size
-				buffer &= mask[size];
-			}
-		}
+        // remove the bits we wrote from the buffer
+        // by applying a mask with the new size
+        buffer &= mask[size];
+      }
+    }
 
-		// If we're encoding and there's input left over, pad the output.
-		// Otherwise, leave the extra bits off, 'cause they themselves are padding
-		if (!decoding && size > 0) {
+    // If we're encoding and there's input left over, pad the output.
+    // Otherwise, leave the extra bits off, 'cause they themselves are padding
+    if (!decoding && size > 0) {
 
-			// flush the buffer
-			write(buffer << (bitsOut - size));
+      // flush the buffer
+      write(buffer << (bitsOut - size));
 
-			// add padding string for the remainder of the group
-			while (output.length % group > 0) {
-				output.push(pad);
-			}
-		}
+      // add padding string for the remainder of the group
+      while (output.length % group > 0) {
+        output.push(pad);
+      }
+    }
 
-		// string!
-		return (arrayData && decoding) ? output : output.join('');
-	};
+    // string!
+    return (arrayData && decoding) ? output : output.join('');
+  };
 
-	/**
-	 * Encode.  Input and output are strings.
-	 */
-	encode = function (input) {
-		return translate(input, dataBits, codeBits, false);
-	};
+  /**
+   * Encode.  Input and output are strings.
+   */
+  encode = function (input) {
+    return translate(input, dataBits, codeBits, false);
+  };
 
-	/**
-	 * Decode.  Input and output are strings.
-	 */
-	decode = function (input) {
-		return translate(input, codeBits, dataBits, true);
-	};
+  /**
+   * Decode.  Input and output are strings.
+   */
+  decode = function (input) {
+    return translate(input, codeBits, dataBits, true);
+  };
 
-	this.encode = encode;
-	this.decode = decode;
-	construct();
+  this.encode = encode;
+  this.decode = decode;
+  construct();
 };
 
 },{}],10:[function(_dereq_,module,exports){
