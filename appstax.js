@@ -1602,11 +1602,16 @@ function hasSession() {
     return sessionId !== null && sessionId !== undefined;
 }
 
+function formData() {
+    return new FormData();
+}
+
 module.exports = {
     init: init,
     request: request,
     url: urlFromTemplate,
     errorFromXhr: errorFromXhr,
+    formData: formData,
     sessionId: function (id) { sessionId = (arguments.length > 0 ? id : sessionId); return sessionId; },
     urlToken: function(token) { urlToken = (arguments.length > 0 ? token : urlToken); return urlToken },
     appKey: function() { return config.appKey; },
@@ -1768,7 +1773,7 @@ function saveFile(collectionName, objectId, propertyName, file) {
     var defer = Q.defer();
     var internal = getInternalFile(file);
     internal.status = "saving";
-    var url = urlForFile(collectionName, objectId, propertyName, file);
+    var url = urlForFile(collectionName, objectId, propertyName, file.filename);
     var data = new FormData();
     data.append("file", internal.nativeFile);
     apiClient.request("put", url, data).then(function(response) {
@@ -1779,26 +1784,40 @@ function saveFile(collectionName, objectId, propertyName, file) {
     return defer.promise;
 }
 
-function urlForFile(collectionName, objectId, propertyName, file) {
-    return apiClient.url("/files/:collectionName/:objectId/:propertyName/:filename?token=:token", {
+function urlForFile(collectionName, objectId, propertyName, filename) {
+    var tokenKey = "token";
+    var tokenValue = apiClient.urlToken();
+    if(tokenValue.length < 2) {
+        tokenKey = "appkey";
+        tokenValue = apiClient.appKey();
+    }
+    return apiClient.url("/files/:collectionName/:objectId/:propertyName/:filename?:tokenKey=:tokenValue", {
         collectionName: collectionName,
         objectId: objectId,
         propertyName: propertyName,
-        filename: file.filename,
-        token: apiClient.urlToken()
+        filename: filename,
+        tokenKey: tokenKey,
+        tokenValue: tokenValue
     })
 }
 
-function isFile(file) {
-    for(var i = 0; i < internalFiles.length; i++) {
-        if(internalFiles[i].file === file) {
-            return true;
-        }
+function getNativeFile(file) {
+    var nativeFile = null;
+    var internal = getInternalFile(file);
+    if(internal != null) {
+        nativeFile = internal.nativeFile;
     }
-    return false;
+    return nativeFile;
 }
 
-function getFileStatus(file) {
+function isFile(file) {
+    return getInternalFile(file) != null;
+}
+
+function fileStatus(file, status) {
+    if(typeof status === "string") {
+        getInternalFile(file).status = status;
+    }
     return getInternalFile(file).status;
 }
 
@@ -1806,7 +1825,9 @@ module.exports = {
     create: createFile,
     isFile: isFile,
     saveFile: saveFile,
-    status: getFileStatus,
+    status: fileStatus,
+    urlForFile: urlForFile,
+    nativeFile: getNativeFile,
     __global: {
         file: createFile
     }
@@ -2115,7 +2136,7 @@ function createObject(collectionName, properties) {
                     sysValues[key] = value;
                 }
             } else if(typeof value.sysDatatype == "string") {
-                filteredProperties[key] = createPropertyWithDataType(value);
+                filteredProperties[key] = createPropertyWithDataType(key, value, object);
             } else {
                 filteredProperties[key] = value;
             }
@@ -2128,11 +2149,11 @@ function createObject(collectionName, properties) {
     return object;
 }
 
-function createPropertyWithDataType(value) {
+function createPropertyWithDataType(key, value, object) {
     switch(value.sysDatatype) {
         case "file": return files.create({
-            filename:value.Filename,
-            url: apiClient.url(value.url + "?token=:token", {token:apiClient.urlToken()})
+            filename: value.filename,
+            url: files.urlForFile(object.collectionName, object.id, key, value.filename)
         });
     }
     return null;
@@ -2182,19 +2203,26 @@ function saveObject(object, defer) {
         return defer.promise;
     }
 
-    var url, method;
+    var url, method, data;
     if(object.id == null) {
         url = apiClient.url("/objects/:collection", {collection: object.collectionName});
         method = "post";
+        data = getDataForSaving(object)
     } else {
         url = apiClient.url("/objects/:collection/:id", {collection: object.collectionName, id: object.id});
         method = "put";
+        data = getPropertiesForSaving(object);
     }
     internal.status = "saving";
-    apiClient.request(method, url, getPropertiesForSaving(object))
+    apiClient.request(method, url, data)
              .then(function(response) {
                  internal.setId(response.sysObjectId);
                  internal.status = "saved";
+                 if(data instanceof FormData) {
+                     getFiles(object).forEach(function(file) {
+                         files.status(file, "saved");
+                     });
+                 }
                  defer.resolve(object);
              })
              .fail(function(xhr) {
@@ -2287,6 +2315,27 @@ function getProperties(object) {
     return data;
 }
 
+function getDataForSaving(object) {
+    var properties = getPropertiesForSaving(object);
+    var fileProperties = getFileProperties(object);
+    var hasFiles = false;
+    var formData = apiClient.formData();
+    Object.keys(fileProperties).forEach(function(key) {
+        var file = fileProperties[key];
+        var nativeFile = files.nativeFile(file);
+        if(nativeFile && files.status(file) !== "saved") {
+            hasFiles = true;
+            formData.append(key, nativeFile);
+        }
+    });
+    if(hasFiles) {
+        formData.append("sysObjectData", JSON.stringify(properties));
+        return formData;
+    } else {
+        return properties;
+    }
+}
+
 function getPropertiesForSaving(object) {
     var properties = getProperties(object);
     Object.keys(properties).forEach(function(key) {
@@ -2311,6 +2360,13 @@ function getFileProperties(object) {
         }
     });
     return fileProperties;
+}
+
+function getFiles(object) {
+    var fileProperties = getFileProperties(object);
+    return Object.keys(fileProperties).map(function(key) {
+        return fileProperties[key];
+    });
 }
 
 function createInternalId() {
