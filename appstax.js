@@ -1730,7 +1730,7 @@ function createInternalFile(file, options) {
         file: file,
         filename: options.filename,
         nativeFile: options.nativeFile,
-        url: options.url || "",
+        url: options.url || "",
         status: "new"
     }
     internalFiles.push(internal);
