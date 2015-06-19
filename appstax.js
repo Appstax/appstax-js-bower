@@ -1508,8 +1508,9 @@ function fixBaseUrl() {
     }
 }
 
-function urlFromTemplate(template, parameters) {
+function urlFromTemplate(template, parameters, query) {
     var url = template;
+    var queryString = "";
     if(url.indexOf("/") == 0) {
         url = url.substr(1);
     }
@@ -1517,6 +1518,14 @@ function urlFromTemplate(template, parameters) {
         Object.keys(parameters).forEach(function(key) {
             url = url.replace(":" + key, uriEncode(parameters[key]));
         });
+    }
+    if(typeof query == "object") {
+        queryString = Object.keys(query).map(function(key) {
+            return key + "=" + uriEncode(query[key]);
+        }).join("&");
+    }
+    if(queryString != "") {
+        url += ((url.indexOf("?") == -1) ? "?" : "&") + queryString;
     }
     return config.baseUrl + url;
 }
@@ -1618,7 +1627,68 @@ module.exports = {
     baseUrl: function() { return config.baseUrl; }
 }
 
-},{"./encoding":6,"extend":1,"kew":3,"reqwest":4}],6:[function(_dereq_,module,exports){
+},{"./encoding":7,"extend":1,"kew":3,"reqwest":4}],6:[function(_dereq_,module,exports){
+
+var collections = {};
+
+function defineCollection(name, options) {
+    collection = parseCollection(options);
+    collections["$" + name] = collection;
+}
+
+function parseCollection(options) {
+    var collection = {};
+    Object.keys(options).forEach(function(key) {
+        var option = options[key];
+        var column = {};
+        if(typeof option === "string") {
+            column.type = option;
+        } else if(typeof option === "object" && typeof option.type === "string") {
+            column.type = option.type;
+        }
+        if(column.type === "relation") {
+            column.relation = option.relation;
+        }
+        collection[key] = column;
+    });
+    return collection;
+}
+
+function getCollection(name) {
+    return collections["$" + name];
+}
+
+function defaultValues(collectionName) {
+    var collection = getCollection(collectionName);
+    var values = {};
+    if(collection) {
+        Object.keys(collection).forEach(function(key) {
+            values[key] = defaultValueForColumn(collection[key])
+        });
+    }
+    return values;
+}
+
+function defaultValueForColumn(column) {
+    switch(column.type) {
+        case "string": return "";
+        case "number": return 0;
+        case "array": return [];
+        case "file": return {sysDatatype:"file", filename:"", url:""};
+        case "relation": return {sysDatatype:"relation", sysRelationType:column.relation, sysObjectIds:[]};
+    }
+    return undefined;
+}
+
+module.exports = {
+    defaultValues: defaultValues,
+    get: getCollection,
+    __global: {
+        collection: function(c, p) { defineCollection(c, p); return getCollection(c); }
+    }
+};
+
+},{}],7:[function(_dereq_,module,exports){
 
 var nibbler = _dereq_("./nibbler");
 
@@ -1644,12 +1714,13 @@ module.exports = {
     }
 }
 
-},{"./nibbler":9}],7:[function(_dereq_,module,exports){
+},{"./nibbler":10}],8:[function(_dereq_,module,exports){
 
 var extend = _dereq_("extend");
 var objects = _dereq_("./objects");
 var users = _dereq_("./users");
 var files = _dereq_("./files");
+var collections = _dereq_("./collections");
 
 var apiClient = _dereq_("./apiclient");
 var config = {};
@@ -1689,9 +1760,9 @@ function log(level, message) {
 module.exports = {
     init: init
 };
-attachModules({objects:objects, users:users, files:files}, module.exports);
+attachModules({objects:objects, users:users, files:files, collections:collections}, module.exports);
 
-},{"./apiclient":5,"./files":8,"./objects":10,"./users":12,"extend":1}],8:[function(_dereq_,module,exports){
+},{"./apiclient":5,"./collections":6,"./files":9,"./objects":11,"./users":13,"extend":1}],9:[function(_dereq_,module,exports){
 
 var apiClient = _dereq_("./apiclient");
 var Q         = _dereq_("kew");
@@ -1785,6 +1856,9 @@ function saveFile(collectionName, objectId, propertyName, file) {
 }
 
 function urlForFile(collectionName, objectId, propertyName, filename) {
+    if(!filename) {
+        return "";
+    }
     var tokenKey = "token";
     var tokenValue = apiClient.urlToken();
     if(tokenValue.length < 2) {
@@ -1833,7 +1907,7 @@ module.exports = {
     }
 };
 
-},{"./apiclient":5,"extend":1,"kew":3}],9:[function(_dereq_,module,exports){
+},{"./apiclient":5,"extend":1,"kew":3}],10:[function(_dereq_,module,exports){
 /*
 Copyright (c) 2010-2013 Thomas Peri
 http://www.tumuski.com/
@@ -2063,28 +2137,36 @@ var Nibbler = function (options) {
   construct();
 };
 
-},{}],10:[function(_dereq_,module,exports){
+},{}],11:[function(_dereq_,module,exports){
 
-var extend    = _dereq_("extend");
-var apiClient = _dereq_("./apiclient");
-var query     = _dereq_("./query");
-var files     = _dereq_("./files");
-var Q         = _dereq_("kew");
+var extend      = _dereq_("extend");
+var apiClient   = _dereq_("./apiclient");
+var query       = _dereq_("./query");
+var files       = _dereq_("./files");
+var collections = _dereq_("./collections");
+var Q           = _dereq_("kew");
 
 var internalIds = [];
 var internalObjects = {};
-var internalProperties = ["collectionName", "id", "internalId", "save", "remove", "grant", "revoke"];
+var internalProperties = ["collectionName", "id", "internalId", "save", "saveAll", "remove", "grant", "revoke"];
 var prototype = {
     save: function() {
-        return saveObject(this)
+        return failOnUnsavedRelations(this)
+                .then(saveObject)
                 .then(savePermissionChanges)
                 .then(saveFileProperties);
+    },
+    saveAll: function() {
+        return saveObjectsInGraph(this);
     },
     remove: function() {
         return removeObject(this);
     },
     refresh: function() {
         return refreshObject(this);
+    },
+    expand: function(options) {
+        return expandObject(this, options);
     },
     grant: function(usernames, permissions) {
         if(typeof usernames === "string") {
@@ -2125,9 +2207,20 @@ function createObject(collectionName, properties) {
     Object.defineProperty(object, "internalId", { writable: false, value: internal.internalId, enumerable:true });
     Object.defineProperty(object, "collectionName", { get: function() { return internal.collectionName; }, enumerable:true });
 
+    properties = extend({}, collections.defaultValues(collectionName), properties);
+    fillObjectWithValues(object, properties);
+
+    if(object.id !== null) {
+        internal.status = "saved";
+    }
+    return object;
+}
+
+function fillObjectWithValues(object, properties) {
+    var internal = getInternalObject(object);
     var filteredProperties = {};
     if(typeof properties === "object") {
-        var sysValues = getInternalObject(object).sysValues;
+        var sysValues = internal.sysValues;
         internal.setId(properties.sysObjectId);
         Object.keys(properties).forEach(function(key) {
             var value = properties[key];
@@ -2136,27 +2229,50 @@ function createObject(collectionName, properties) {
                     sysValues[key] = value;
                 }
             } else if(typeof value.sysDatatype == "string") {
-                filteredProperties[key] = createPropertyWithDataType(key, value, object);
+                filteredProperties[key] = createPropertyWithDatatype(key, value, object);
+                if(value.sysDatatype == "relation") {
+                    internal.relations[key] = {
+                        type: value.sysRelationType,
+                        ids: (value.sysObjects || []).map(function(object) {
+                            return object.id || object;
+                        })
+                    }
+                }
             } else {
                 filteredProperties[key] = value;
             }
         });
     }
     extend(object, filteredProperties);
-    if(object.id !== null) {
-        internal.status = "saved";
-    }
-    return object;
 }
 
-function createPropertyWithDataType(key, value, object) {
+function createPropertyWithDatatype(key, value, object) {
     switch(value.sysDatatype) {
+        case "relation": return _createRelationProperty(value);
         case "file": return files.create({
             filename: value.filename,
             url: files.urlForFile(object.collectionName, object.id, key, value.filename)
         });
     }
     return null;
+
+    function _createRelationProperty(value) {
+        var results = [];
+        if(typeof value.sysObjects !== "undefined") {
+            results = value.sysObjects.map(function(object) {
+                if(typeof object === "string") {
+                    return object
+                } else {
+                    return createObject(value.sysCollection, object);
+                }
+            });
+        }
+        if("single" === value.sysRelationType) {
+            return results[0];
+        } else {
+            return results;
+        }
+    }
 }
 
 function createInternalObject(collectionName) {
@@ -2165,9 +2281,11 @@ function createInternalObject(collectionName) {
         internalId: createInternalId(),
         collectionName: collectionName,
         sysValues: {},
+        initialValues: {},
         status: "new",
         grants: [],
         revokes: [],
+        relations: {},
         setId: function(id) { if(id) { this.id = id; }},
         resetPermissions: function() { this.grants = []; this.revokes = []; }
     }
@@ -2195,7 +2313,7 @@ function refreshObject(object) {
 
 function saveObject(object, defer) {
     var internal = getInternalObject(object)
-    var defer = defer || Q.defer();
+    var defer = typeof defer == "object" ? defer : Q.defer();
     if(internal.status === "saving") {
         setTimeout(function() {
             saveObject(object, defer);
@@ -2218,10 +2336,9 @@ function saveObject(object, defer) {
              .then(function(response) {
                  internal.setId(response.sysObjectId);
                  internal.status = "saved";
+                 applyRelationChanges(object, data);
                  if(data instanceof FormData) {
-                     getFiles(object).forEach(function(file) {
-                         files.status(file, "saved");
-                     });
+                     markFilesSaved(object);
                  }
                  defer.resolve(object);
              })
@@ -2245,6 +2362,32 @@ function removeObject(object) {
     return defer.promise;
 }
 
+function expandObject(object, options) {
+    if(isUnsaved(object)) {
+        throw new Error("Error calling expand() on unsaved object.")
+    }
+    var defer = Q.defer();
+    var depth = 1;
+    if(typeof options === "number") {
+        depth = options;
+    }
+    findById(object.collectionName, object.id, {expand:depth}).then(function(expanded) {
+        var internal = getInternalObject(object);
+        var relations = Object.keys(internal.relations);
+        relations.forEach(function(relation) {
+            object[relation] = expanded[relation];
+        });
+        defer.resolve(object);
+    });
+    return defer.promise;
+}
+
+function markFilesSaved(object) {
+    getFiles(object).forEach(function(file) {
+        files.status(file, "saved");
+    });
+}
+
 function saveFileProperties(object) {
     var fileProperties = getFileProperties(object);
     var keys = Object.keys(fileProperties);
@@ -2265,8 +2408,8 @@ function savePermissionChanges(object) {
     var defer = Q.defer();
     var url = apiClient.url("/permissions");
     var internal = getInternalObject(object);
-    var grants = internal.grants.map(convertChange);
-    var revokes = internal.revokes.map(convertChange);
+    var grants = internal.grants.map(_convertChange);
+    var revokes = internal.revokes.map(_convertChange);
     internal.resetPermissions();
 
     if(grants.length + revokes.length === 0) {
@@ -2283,13 +2426,168 @@ function savePermissionChanges(object) {
     }
     return defer.promise;
 
-    function convertChange(change) {
+    function _convertChange(change) {
         return {
             sysObjectId: object.id,
             username: change.username,
             permissions: change.permissions
         }
     }
+}
+
+function failOnUnsavedRelations(object) {
+    detectUndeclaredRelations(object);
+    var related = getRelatedObjects(object);
+    if(related.some(isUnsaved)) {
+        throw new Error("Error saving object. Found unsaved related objects. Save related objects first or consider using saveAll().")
+    } else {
+        return Q.resolve(object);
+    }
+}
+
+function saveObjectsInGraph(rootObject) {
+    var objects = getObjectsInGraph(rootObject);
+    var unsavedInbound = objects.inbound.filter(isUnsaved);
+    var outbound = objects.outbound;
+    var remaining = objects.inbound.filter(function(o) { return !isUnsaved(o) });
+
+    if(0 == outbound.length + unsavedInbound.length + remaining.length) {
+        return rootObject.save();
+    } else {
+        return _saveUnsavedInbound().then(_saveOutbound).then(_saveRemaining);
+    }
+
+    function _saveUnsavedInbound() {
+        return Q.all(unsavedInbound.map(saveObject));
+    }
+    function _saveOutbound() {
+        return Q.all(outbound.map(saveObject));
+    }
+    function _saveRemaining() {
+        return Q.all(remaining.map(saveObject));
+    }
+}
+
+function getObjectsInGraph(rootObject) {
+    var queue = [rootObject];
+    var all      = {};
+    var inbound  = {};
+    var outbound = {};
+
+    while(queue.length > 0) {
+        var object = queue.shift();
+        detectUndeclaredRelations(object);
+        if(all[object.internalId] == null) {
+            all[object.internalId] = object;
+            var allRelated = getRelatedObjects(object);
+            allRelated.forEach(function(related) {
+                inbound[related.internalId] = related;
+            });
+            if(allRelated.length > 0) {
+                outbound[object.internalId] = object;
+                queue = queue.concat(allRelated);
+            }
+        }
+    }
+
+    return {
+        all:      _mapToArray(all),
+        inbound:  _mapToArray(inbound),
+        outbound: _mapToArray(outbound)
+    }
+
+    function _mapToArray(map) {
+        return Object.keys(map).map(_objectForKey);
+    }
+
+    function _objectForKey(key) {
+        return all[key];
+    }
+}
+
+function getRelatedObjects(object) {
+    var related = [];
+    var internal = getInternalObject(object);
+    Object.keys(internal.relations).forEach(function(key) {
+        var property = object[key];
+        if(property == null) {
+            return;
+        }
+        related = related.concat(property);
+    });
+    return related;
+}
+
+function getRelationChanges(object, propertyName) {
+    var internal = getInternalObject(object);
+    var relation = internal.relations[propertyName];
+    var changes = {
+        additions: [],
+        removals: []
+    }
+
+    if(relation) {
+        var property = object[propertyName];
+        var objects = [];
+        if(property) {
+            objects = (relation.type == "array") ? property : [property];
+        }
+        var currentIds = objects.map(function(o) { return o.id || o; })
+                                .filter(function(id) { return typeof id === "string"; });
+        changes.additions = currentIds.filter(function(id) {
+            return id != null && relation.ids.indexOf(id) == -1;
+        });
+        changes.removals = relation.ids.filter(function(id) {
+            return id != null && currentIds.indexOf(id) == -1;
+        });
+    }
+
+    return changes;
+}
+
+function applyRelationChanges(object, savedData) {
+    var internal = getInternalObject(object);
+    Object.keys(internal.relations).forEach(function(key) {
+        var relation = internal.relations[key];
+        var changes = savedData[key].sysRelationChanges;
+        relation.ids = relation.ids
+            .concat(changes.additions)
+            .filter(function(id) {
+                return changes.removals.indexOf(id) == -1;
+            });
+    });
+}
+
+function detectUndeclaredRelations(object) {
+    var collection = collections.get(object.collectionName);
+    var relations = getInternalObject(object).relations;
+    if(collection || Object.keys(relations).length > 0) {
+        return;
+    }
+
+    var properties = getProperties(object);
+    Object.keys(properties).forEach(function(key) {
+        var property = properties[key]
+        var relationType = "";
+        if(typeof property === "object") {
+            if(typeof property.length === "undefined") {
+                if(typeof property.collectionName === "string") {
+                    relationType = "single"
+                }
+            } else {
+                property.some(function(item) {
+                    if(typeof item.collectionName === "string") {
+                        relationType = "array"
+                        return true;
+                    }
+                    return false;
+                })
+            }
+        }
+        if(relationType !== "") {
+            relations[key] = { type:relationType, ids:[] };
+        }
+    });
 }
 
 function getPropertyNames(object) {
@@ -2337,6 +2635,7 @@ function getDataForSaving(object) {
 }
 
 function getPropertiesForSaving(object) {
+    var internal = getInternalObject(object);
     var properties = getProperties(object);
     Object.keys(properties).forEach(function(key) {
         var property = properties[key];
@@ -2344,6 +2643,10 @@ function getPropertiesForSaving(object) {
             properties[key] = {
                 sysDatatype: "file",
                 filename: property.filename
+            }
+        } else if(typeof internal.relations[key] === "object") {
+            properties[key] = {
+                sysRelationChanges: getRelationChanges(object, key)
             }
         }
     });
@@ -2375,9 +2678,22 @@ function createInternalId() {
     return id;
 }
 
-function findAll(collectionName) {
+function queryParametersFromQueryOptions(options) {
+    if(!options) { return; }
+    var parameters = {};
+    if(typeof options.expand === "number") {
+        parameters.expanddepth = options.expand;
+    } else if(options.expand === true) {
+        parameters.expanddepth = 1;
+    }
+    return parameters;
+}
+
+function findAll(collectionName, options) {
     var defer = Q.defer();
-    var url = apiClient.url("/objects/:collection", {collection: collectionName});
+    var url = apiClient.url("/objects/:collection",
+                            {collection: collectionName},
+                            queryParametersFromQueryOptions(options));
     apiClient.request("get", url)
              .then(function(result) {
                  defer.resolve(createObjectsFromFindResult(collectionName, result));
@@ -2391,22 +2707,25 @@ function findAll(collectionName) {
 function find(collectionName) {
     if(arguments.length < 2) { return; }
     var a1 = arguments[1];
+    var a2 = arguments[2];
     if(typeof a1 === "string" && a1.indexOf("=") == -1) {
-        return findById(collectionName, a1);
+        return findById(collectionName, a1, a2);
     } else if(typeof a1 === "string") {
-        return findByQueryString(collectionName, a1);
+        return findByQueryString(collectionName, a1, a2);
     } else if(typeof a1 === "object" && typeof a1.queryString === "function") {
-        return findByQueryObject(collectionName, a1);
+        return findByQueryObject(collectionName, a1, a2);
     } else if(typeof a1 === "object") {
-        return findByPropertyValues(collectionName, a1);
+        return findByPropertyValues(collectionName, a1, a2);
     } else if(typeof a1 === "function") {
-        return findByQueryFunction(collectionName, a1);
+        return findByQueryFunction(collectionName, a1, a2);
     }
 }
 
-function findById(collectionName, id) {
+function findById(collectionName, id, options) {
     var defer = Q.defer();
-    var url = apiClient.url("/objects/:collection/:id", {collection: collectionName, id: id});
+    var url = apiClient.url("/objects/:collection/:id",
+                            {collection: collectionName, id: id},
+                            queryParametersFromQueryOptions(options));
     apiClient.request("get", url)
              .then(function(result) {
                  defer.resolve(createObject(collectionName, result));
@@ -2417,10 +2736,11 @@ function findById(collectionName, id) {
     return defer.promise;
 }
 
-function findByQueryString(collectionName, queryString) {
+function findByQueryString(collectionName, queryString, options) {
     var defer = Q.defer();
     var url = apiClient.url("/objects/:collection?filter=:queryString",
-                            {collection: collectionName, queryString: queryString});
+                            {collection: collectionName, queryString: queryString},
+                            queryParametersFromQueryOptions(options));
     apiClient.request("get", url)
              .then(function(result) {
                  defer.resolve(createObjectsFromFindResult(collectionName, result));
@@ -2431,33 +2751,41 @@ function findByQueryString(collectionName, queryString) {
     return defer.promise;
 }
 
-function findByQueryObject(collectionName, queryObject) {
-    return findByQueryString(collectionName, queryObject.queryString());
+function findByQueryObject(collectionName, queryObject, options) {
+    return findByQueryString(collectionName, queryObject.queryString(), options);
 }
 
-function findByQueryFunction(collectionName, queryFunction) {
+function findByQueryFunction(collectionName, queryFunction, options) {
     var queryObject = createQuery();
     queryFunction(queryObject);
-    return findByQueryString(collectionName, queryObject.queryString());
+    return findByQueryString(collectionName, queryObject.queryString(), options);
 }
 
-function findByPropertyValues(collectionName, propertyValues) {
+function findByPropertyValues(collectionName, propertyValues, options) {
     return findByQueryFunction(collectionName, function(query) {
         Object.keys(propertyValues).forEach(function(property) {
             var value = propertyValues[property];
-            query.string(property).equals(value);
+            if(typeof value === "object" && typeof value.id === "string") {
+                query.relation(property).has(value);
+            } else {
+                query.string(property).equals(value);
+            }
         });
-    });
+    }, options);
 }
 
 function search(collectionName) {
     var propertyValues = arguments[1];
-    if(arguments.length === 3) {
+    var options = arguments[2];
+    if(arguments.length >= 3 && typeof arguments[1] === "string") {
         propertyValues = {};
         var searchString = arguments[1]
         Array.prototype.forEach.call(arguments[2], function(property) {
             propertyValues[property] = searchString;
         });
+        if(arguments.length == 4) {
+            options = arguments[3];
+        }
     }
     return find(collectionName, function(query) {
         query.operator("or");
@@ -2465,7 +2793,7 @@ function search(collectionName) {
             var value = propertyValues[property];
             query.string(property).contains(value);
         });
-    });
+    }, options);
 }
 
 function createObjectsFromFindResult(collectionName, result) {
@@ -2481,6 +2809,10 @@ function createQuery(options) {
 function getObjectStatus(object) {
     var internal = getInternalObject(object);
     return internal ? internal.status : undefined;
+}
+
+function isUnsaved(object) {
+    return getObjectStatus(object) === "new";
 }
 
 function isObject(object) {
@@ -2500,7 +2832,7 @@ module.exports = {
     }
 };
 
-},{"./apiclient":5,"./files":8,"./query":11,"extend":1,"kew":3}],11:[function(_dereq_,module,exports){
+},{"./apiclient":5,"./collections":6,"./files":9,"./query":12,"extend":1,"kew":3}],12:[function(_dereq_,module,exports){
 
 module.exports = function(options) {
 
@@ -2511,6 +2843,7 @@ module.exports = function(options) {
     return {
         queryString: queryString,
         string: createStringPredicate,
+        relation: createRelationPredicate,
         operator: function(o) { operator = o; }
     };
 
@@ -2535,6 +2868,20 @@ module.exports = function(options) {
         }
     }
 
+    function createRelationPredicate(property) {
+        return {
+            has: function(objectsOrIds) {
+                var ids = _getQuotedIds(objectsOrIds);
+                addPredicate(format("$ has ($)", property, ids.join(",")));
+            }
+        }
+        function _getQuotedIds(objectsOrIds) {
+            return [].concat(objectsOrIds).map(function(item) {
+                return "'" + (item.id || item) + "'";
+            });
+        }
+    }
+
     function queryString() {
         return predicates.join(format(" $ ", operator));
     }
@@ -2550,7 +2897,7 @@ module.exports = function(options) {
 
 };
 
-},{}],12:[function(_dereq_,module,exports){
+},{}],13:[function(_dereq_,module,exports){
 
 var apiClient = _dereq_("./apiclient");
 var objects   = _dereq_("./objects");
@@ -2701,6 +3048,6 @@ module.exports = {
     }
 };
 
-},{"./apiclient":5,"./objects":10,"extend":1,"kew":3}]},{},[7])
-(7)
+},{"./apiclient":5,"./objects":11,"extend":1,"kew":3}]},{},[8])
+(8)
 });
