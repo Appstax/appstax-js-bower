@@ -1714,7 +1714,21 @@ module.exports = {
     }
 }
 
-},{"./nibbler":10}],8:[function(_dereq_,module,exports){
+},{"./nibbler":11}],8:[function(_dereq_,module,exports){
+
+module.exports = {
+    log: function(error) {
+        if(console && console.error) {
+            if(error && error.message) {
+                console.error("Appstax Error: " + error.message, error);
+            } else {
+                console.error("Appstax Error", error);
+            }
+        }
+    }
+}
+
+},{}],9:[function(_dereq_,module,exports){
 
 var extend = _dereq_("extend");
 var objects = _dereq_("./objects");
@@ -1762,7 +1776,7 @@ module.exports = {
 };
 attachModules({objects:objects, users:users, files:files, collections:collections}, module.exports);
 
-},{"./apiclient":5,"./collections":6,"./files":9,"./objects":11,"./users":13,"extend":1}],9:[function(_dereq_,module,exports){
+},{"./apiclient":5,"./collections":6,"./files":10,"./objects":12,"./users":14,"extend":1}],10:[function(_dereq_,module,exports){
 
 var apiClient = _dereq_("./apiclient");
 var Q         = _dereq_("kew");
@@ -1907,7 +1921,7 @@ module.exports = {
     }
 };
 
-},{"./apiclient":5,"extend":1,"kew":3}],10:[function(_dereq_,module,exports){
+},{"./apiclient":5,"extend":1,"kew":3}],11:[function(_dereq_,module,exports){
 /*
 Copyright (c) 2010-2013 Thomas Peri
 http://www.tumuski.com/
@@ -2137,13 +2151,14 @@ var Nibbler = function (options) {
   construct();
 };
 
-},{}],11:[function(_dereq_,module,exports){
+},{}],12:[function(_dereq_,module,exports){
 
 var extend      = _dereq_("extend");
 var apiClient   = _dereq_("./apiclient");
 var query       = _dereq_("./query");
 var files       = _dereq_("./files");
 var collections = _dereq_("./collections");
+var failLogger  = _dereq_("./faillogger");
 var Q           = _dereq_("kew");
 
 var internalIds = [];
@@ -2154,19 +2169,20 @@ var prototype = {
         return failOnUnsavedRelations(this)
                 .then(saveObject)
                 .then(savePermissionChanges)
-                .then(saveFileProperties);
+                .then(saveFileProperties)
+                .fail(failLogger.log);
     },
     saveAll: function() {
-        return saveObjectsInGraph(this);
+        return saveObjectsInGraph(this).fail(failLogger.log);
     },
     remove: function() {
-        return removeObject(this);
+        return removeObject(this).fail(failLogger.log);
     },
     refresh: function() {
-        return refreshObject(this);
+        return refreshObject(this).fail(failLogger.log);
     },
     expand: function(options) {
-        return expandObject(this, options);
+        return expandObject(this, options).fail(failLogger.log);
     },
     grant: function(usernames, permissions) {
         if(typeof usernames === "string") {
@@ -2206,6 +2222,9 @@ function createObject(collectionName, properties) {
     Object.defineProperty(object, "id", { get: function() { return internal.id; }, enumerable:true });
     Object.defineProperty(object, "internalId", { writable: false, value: internal.internalId, enumerable:true });
     Object.defineProperty(object, "collectionName", { get: function() { return internal.collectionName; }, enumerable:true });
+    if(collectionName == "users") {
+        Object.defineProperty(object, "username", { get:function() { return internal.sysValues.sysUsername; }, enumerable:false });
+    }
 
     properties = extend({}, collections.defaultValues(collectionName), properties);
     fillObjectWithValues(object, properties);
@@ -2304,7 +2323,13 @@ function refreshObject(object) {
         defer.resolve(object);
     } else {
         findById(object.collectionName, object.id).then(function(updated) {
-            extend(object, getProperties(updated));
+            Object.keys(updated)
+                .filter(function(key) {
+                    return internalProperties.indexOf(key) == -1
+                })
+                .forEach(function(key) {
+                    object[key] = updated[key];
+                });
             defer.resolve(object);
         });
     }
@@ -2479,7 +2504,7 @@ function getObjectsInGraph(rootObject) {
         detectUndeclaredRelations(object);
         if(all[object.internalId] == null) {
             all[object.internalId] = object;
-            var allRelated = getRelatedObjects(object);
+            var allRelated = getRelatedObjects(object).filter(function(a) { return typeof a == "object" });
             allRelated.forEach(function(related) {
                 inbound[related.internalId] = related;
             });
@@ -2561,15 +2586,15 @@ function applyRelationChanges(object, savedData) {
 function detectUndeclaredRelations(object) {
     var collection = collections.get(object.collectionName);
     var relations = getInternalObject(object).relations;
-    if(collection || Object.keys(relations).length > 0) {
-        return;
-    }
 
     var properties = getProperties(object);
     Object.keys(properties).forEach(function(key) {
+        if(relations[key]) {
+            return;
+        }
         var property = properties[key]
         var relationType = "";
-        if(typeof property === "object") {
+        if(property !== null && typeof property === "object") {
             if(typeof property.length === "undefined") {
                 if(typeof property.collectionName === "string") {
                     relationType = "single"
@@ -2832,7 +2857,7 @@ module.exports = {
     }
 };
 
-},{"./apiclient":5,"./collections":6,"./files":9,"./query":12,"extend":1,"kew":3}],12:[function(_dereq_,module,exports){
+},{"./apiclient":5,"./collections":6,"./faillogger":8,"./files":10,"./query":13,"extend":1,"kew":3}],13:[function(_dereq_,module,exports){
 
 module.exports = function(options) {
 
@@ -2897,7 +2922,7 @@ module.exports = function(options) {
 
 };
 
-},{}],13:[function(_dereq_,module,exports){
+},{}],14:[function(_dereq_,module,exports){
 
 var apiClient = _dereq_("./apiclient");
 var objects   = _dereq_("./objects");
@@ -2905,58 +2930,12 @@ var extend    = _dereq_("extend");
 var Q         = _dereq_("kew");
 
 var internalProperties = ["id", "username", "save"];
-var prototype = {
-    save: function() {
-        return saveUser(this);
-    },
-    refresh: function() {
-        return refreshUser(this);
-    }
-};
 var currentUser = null;
-var dataObjects = {};
 
 function createUser(username, properties) {
     var allProperties = extend({}, properties, {sysUsername:username});
-    var user = Object.create(prototype);
-    var id = "";
-    if(typeof properties === "object") {
-        id = properties.sysObjectId;
-        fillUser(user, properties);
-    }
-    Object.defineProperty(user, "username", { get:function() { return username; }, enumerable:true });
-    Object.defineProperty(user, "id", { get:function() { return id; }, enumerable:true });
-    dataObjects[id] = objects.create("Users", allProperties);
+    var user = objects.create("users", allProperties);
     return user;
-}
-
-function refreshUser(user) {
-    var object = dataObjects[user.id];
-    return object.refresh().then(function() {
-        fillUser(user, objects.getProperties(object));
-    });
-}
-
-function fillUser(user, properties) {
-    Object.keys(properties).forEach(function(key) {
-        if(key.indexOf("sys") !== 0) {
-            user[key] = properties[key];
-        }
-    });
-}
-
-function saveUser(user) {
-    var defer = Q.defer();
-    var object = dataObjects[user.id];
-    extend(object, getProperties(user));
-    object.save()
-        .then(function(object) {
-            defer.resolve(user);
-        })
-        .fail(function(error) {
-            defer.reject(error);
-        });
-    return defer.promise;
 }
 
 function signup(username, password, properties) {
@@ -3048,6 +3027,6 @@ module.exports = {
     }
 };
 
-},{"./apiclient":5,"./objects":11,"extend":1,"kew":3}]},{},[8])
-(8)
+},{"./apiclient":5,"./objects":12,"extend":1,"kew":3}]},{},[9])
+(9)
 });
