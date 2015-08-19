@@ -1732,6 +1732,7 @@ module.exports = {
                 console.error(error.stack);
             }
         }
+        throw error;
     }
 }
 
@@ -2223,7 +2224,7 @@ var Q           = _dereq_("kew");
 
 module.exports = createObjectsContext;
 
-var internalProperties = ["collectionName", "id", "internalId", "save", "saveAll", "remove", "grant", "revoke"];
+var internalProperties = ["collectionName", "id", "internalId", "username", "created", "updated", "permissions", "save", "saveAll", "remove", "grant", "revoke", "sysCreated", "sysUpdated", "sysPermissions"];
 
 function createObjectsContext(apiClient, files, collections) {
     var internalIds = [];
@@ -2278,6 +2279,9 @@ function createObjectsContext(apiClient, files, collections) {
         },
         revokePublic: function(permissions) {
             this.revoke("*", permissions);
+        },
+        hasPermission: function(permission) {
+            return this.permissions.indexOf(permission) != -1;
         }
     };
 
@@ -2298,8 +2302,11 @@ function createObjectsContext(apiClient, files, collections) {
         Object.defineProperty(object, "id", { get: function() { return internal.id; }, enumerable:true });
         Object.defineProperty(object, "internalId", { writable: false, value: internal.internalId, enumerable:true });
         Object.defineProperty(object, "collectionName", { get: function() { return internal.collectionName; }, enumerable:true });
+        Object.defineProperty(object, "created", { get: function() { return internal.created; }, enumerable:true });
+        Object.defineProperty(object, "updated", { get: function() { return internal.updated; }, enumerable:true });
+        Object.defineProperty(object, "permissions", { get: function() { return internal.sysValues.sysPermissions; }, enumerable: true });
         if(collectionName == "users") {
-            Object.defineProperty(object, "username", { get:function() { return internal.sysValues.sysUsername; }, enumerable:false });
+            Object.defineProperty(object, "username", { get:function() { return internal.sysValues.sysUsername; }, enumerable:true });
         }
 
         properties = extend({}, collections.defaultValues(collectionName), properties);
@@ -2317,12 +2324,16 @@ function createObjectsContext(apiClient, files, collections) {
         if(typeof properties === "object") {
             var sysValues = internal.sysValues;
             internal.setId(properties.sysObjectId);
+            if(properties.sysCreated) {
+                internal.created = new Date(properties.sysCreated)
+            }
+            if(properties.sysUpdated) {
+                internal.updated = new Date(properties.sysUpdated)
+            }
             Object.keys(properties).forEach(function(key) {
                 var value = properties[key];
                 if(key.indexOf("sys") === 0) {
-                    if(key !== "sysPermissions") {
-                        sysValues[key] = value;
-                    }
+                    sysValues[key] = value;
                 } else if(typeof value.sysDatatype == "string") {
                     filteredProperties[key] = createPropertyWithDatatype(key, value, object);
                     if(value.sysDatatype == "relation") {
@@ -2377,6 +2388,8 @@ function createObjectsContext(apiClient, files, collections) {
             collectionName: collectionName,
             sysValues: {},
             initialValues: {},
+            created: new Date(),
+            updated: new Date(),
             status: "new",
             grants: [],
             revokes: [],
@@ -2693,13 +2706,9 @@ function createObjectsContext(apiClient, files, collections) {
 
     function getPropertyNames(object) {
         var keys = Object.keys(object);
-        internalProperties.forEach(function(internal) {
-            var index = keys.indexOf(internal);
-            if(index >= 0) {
-                keys.splice(index, 1);
-            }
+        return keys.filter(function(key) {
+            return internalProperties.indexOf(key) == -1;
         });
-        return keys;
     }
 
     function getProperties(object) {
@@ -2710,7 +2719,12 @@ function createObjectsContext(apiClient, files, collections) {
                 data[key] = object[key];
             }
         });
-        extend(data, getInternalObject(object).sysValues);
+        var sysValues = getInternalObject(object).sysValues;
+        Object.keys(sysValues).forEach(function(key) {
+            if(internalProperties.indexOf(key) == -1) {
+                data[key] = sysValues[key];
+            }
+        });
         return data;
     }
 
