@@ -1486,9 +1486,55 @@ module.exports = {
 
 },{}],5:[function(_dereq_,module,exports){
 
+/**
+ * Module dependencies.
+ */
+
+var global = (function() { return this; })();
+
+/**
+ * WebSocket constructor.
+ */
+
+var WebSocket = global.WebSocket || global.MozWebSocket;
+
+/**
+ * Module exports.
+ */
+
+module.exports = WebSocket ? ws : null;
+
+/**
+ * WebSocket constructor.
+ *
+ * The third `opts` options object gets ignored in web browsers, since it's
+ * non-standard, and throws a TypeError if passed to the constructor.
+ * See: https://github.com/einaros/ws/issues/227
+ *
+ * @param {String} uri
+ * @param {Array} protocols (optional)
+ * @param {Object) opts (optional)
+ * @api public
+ */
+
+function ws(uri, protocols, opts) {
+  var instance;
+  if (protocols) {
+    instance = new WebSocket(uri, protocols);
+  } else {
+    instance = new WebSocket(uri);
+  }
+  return instance;
+}
+
+if (WebSocket) ws.prototype = WebSocket.prototype;
+
+},{}],6:[function(_dereq_,module,exports){
+
 var extend   = _dereq_("extend");
 var Q        = _dereq_("kew");
 var encoding = _dereq_("./encoding");
+var socket = _dereq_("./socket");
 
 var http = _dereq_("./http-browser");
 if(typeof window != "object") {
@@ -1500,18 +1546,22 @@ module.exports = createApiClient;
 function createApiClient(options) {
     var config = {};
     var sessionId = null;
+    var sessionIdProvider = function() { return sessionId; }
     var urlToken = "";
+    var socketInstance;
 
     init();
-    return {
+    var self = {
         request: request,
         url: urlFromTemplate,
         formData: formData,
-        sessionId: function (id) { sessionId = (arguments.length > 0 ? id : sessionId); return sessionId; },
+        sessionId: function (id) { setSessionId(id); return getSessionId(); },
         urlToken: function(token) { urlToken = (arguments.length > 0 ? token : urlToken); return urlToken },
         appKey: function() { return config.appKey; },
-        baseUrl: function() { return config.baseUrl; }
+        baseUrl: function() { return config.baseUrl; },
+        socket: getSocket
     }
+    return self;
 
     function init() {
         config = extend({}, config, options);
@@ -1600,7 +1650,7 @@ function createApiClient(options) {
         }
         function addSessionIdHeader(headers) {
             if(hasSession()) {
-                headers["x-appstax-sessionid"] = sessionId;
+                headers["x-appstax-sessionid"] = getSessionId();
             }
         }
         function addPreflightHeader(headers) {
@@ -1617,7 +1667,31 @@ function createApiClient(options) {
     }
 
     function hasSession() {
-        return sessionId !== null && sessionId !== undefined;
+        var s = getSessionId();
+        return s !== null && s !== undefined;
+    }
+
+    function setSessionId(s) {
+        switch(typeof s) {
+            case "string":
+            case "object":
+                sessionId = s;
+                break;
+            case "function":
+                sessionIdProvider = s;
+                break;
+        }
+    }
+
+    function getSessionId() {
+        return sessionIdProvider();
+    }
+
+    function getSocket() {
+        if(!socketInstance) {
+            socketInstance = socket(self);
+        }
+        return socketInstance;
     }
 
     function formData() {
@@ -1629,7 +1703,147 @@ function createApiClient(options) {
     }
 }
 
-},{"./encoding":7,"./http-browser":11,"extend":1,"kew":3}],6:[function(_dereq_,module,exports){
+},{"./encoding":9,"./http-browser":13,"./socket":18,"extend":1,"kew":3}],7:[function(_dereq_,module,exports){
+
+module.exports = createChannelsContext;
+
+function createChannelsContext(socket) {
+    var channels;
+    var handlers;
+    var idCounter = 0;
+
+    init();
+    return {
+        getChannel: getChannel
+    };
+
+    function init() {
+        socket.on("open", handleSocketOpen);
+        socket.on("error", handleSocketError);
+        socket.on("message", handleSocketMessage);
+        channels = {};
+        handlers = [];
+    }
+
+    function createChannel(channelName, usernames) {
+        var nameParts = channelName.split("/");
+        var channel = {
+            type: nameParts[0],
+            wildcard: channelName.indexOf("*") != -1,
+            on: function(eventName, handler) {
+                addHandler(channelName, eventName, handler)
+            },
+            send: function(message) {
+                sendPacket({
+                    channel:channelName,
+                    command:"publish",
+                    message: message
+                });
+            },
+            grant: function(username, permissions) {
+                sendPermission(channelName, "grant", [username], permissions);
+            },
+            revoke: function(username, permissions) {
+                sendPermission(channelName, "revoke", [username], permissions);
+            }
+        };
+        if(channel.type == "private" && !channel.wildcard) {
+            sendPacket({channel:channelName, command:"channel.create"});
+            if(usernames && usernames.length > 0) {
+                sendPermission(channelName, "grant", usernames, ["read", "write"]);
+            }
+        } else {
+            sendPacket({channel:channelName, command:"subscribe"});
+        }
+        return channel;
+    }
+
+    function sendPermission(channelName, change, usernames, permissions) {
+        permissions.forEach(function(permission) {
+            sendPacket({
+                channel: channelName,
+                command: change + "." + permission,
+                data: usernames
+            })
+        });
+    }
+
+    function getChannel(name, permissions) {
+        var channel = channels[name];
+        if(!channel) {
+            channels[name] = channel = createChannel(name, permissions);
+        }
+        return channel;
+    }
+
+    function sendPacket(packet) {
+        packet.id = String(idCounter++);
+        socket.send(packet);
+    }
+
+    function notifyHandlers(channelName, eventName, event) {
+        getHandlers(channelName, eventName).forEach(function(handler) {
+            handler(event);
+        });
+    }
+
+    function getHandlers(channelName, eventName) {
+        var filtered = [];
+        if(channelName == "*") {
+            filtered = handlers.filter(function(handler) {
+                return handler.eventName == eventName;
+            });
+        } else {
+            filtered = handlers.filter(function(handler) {
+                return handler.eventName == eventName &&
+                       handler.regexp.test(channelName)
+            });
+        }
+        return filtered.map(function(handler) {
+            return handler.fn;
+        });
+    }
+
+    function addHandler(channelPattern, eventName, handler) {
+        var regexp;
+        if(channelPattern.lastIndexOf("*") == channelPattern.length - 1) {
+            regexp = new RegExp("^" + channelPattern.replace("*", ""));
+        } else {
+            regexp = new RegExp("^" + channelPattern + "$");
+        }
+        handlers.push({
+            regexp: regexp,
+            eventName: eventName,
+            fn: handler
+        });
+    }
+
+    function handleSocketOpen(event) {
+        notifyHandlers("*", "open");
+    }
+
+    function handleSocketError(event) {
+        notifyHandlers("*", "error", {
+            type:"error",
+            error: new Error("Error connecting to realtime service")
+        });
+    }
+
+    function handleSocketMessage(event) {
+        var data = {};
+        try {
+            data = JSON.parse(event.data);
+        } catch(e) {}
+
+        if(typeof data.channel === "string" &&
+           typeof data.event   === "string") {
+            notifyHandlers(data.channel, data.event, data);
+        }
+    }
+}
+
+
+},{}],8:[function(_dereq_,module,exports){
 
 module.exports = createCollectionsContext;
 
@@ -1692,7 +1906,7 @@ function createCollectionsContext() {
     }
 }
 
-},{}],7:[function(_dereq_,module,exports){
+},{}],9:[function(_dereq_,module,exports){
 
 var nibbler = _dereq_("./nibbler");
 
@@ -1718,7 +1932,7 @@ module.exports = {
     }
 }
 
-},{"./nibbler":12}],8:[function(_dereq_,module,exports){
+},{"./nibbler":14}],10:[function(_dereq_,module,exports){
 
 module.exports = {
     log: function(error) {
@@ -1736,7 +1950,7 @@ module.exports = {
     }
 }
 
-},{}],9:[function(_dereq_,module,exports){
+},{}],11:[function(_dereq_,module,exports){
 
 var extend      = _dereq_("extend");
 var objects     = _dereq_("./objects");
@@ -1744,6 +1958,8 @@ var users       = _dereq_("./users");
 var files       = _dereq_("./files");
 var collections = _dereq_("./collections");
 var apiClient   = _dereq_("./apiclient");
+var request     = _dereq_("./request");
+var channels    = _dereq_("./channels");
 
 var defaults = {
     baseUrl: "https://appstax.com/api/latest/",
@@ -1778,6 +1994,8 @@ function createContext(options) {
         context.collections = collections();
         context.objects     = objects(context.apiClient, context.files, context.collections);
         context.users       = users(context.apiClient, context.objects);
+        context.request     = request(context.apiClient)
+        context.channels    = channels(context.apiClient.socket());
 
         // expose shortcuts
         context.object      = context.objects.createObject;
@@ -1792,6 +2010,7 @@ function createContext(options) {
         context.collection  = context.collections.collection;
         context.file        = context.files.createFile;
         context.sessionId   = context.apiClient.sessionId;
+        context.channel     = context.channels.getChannel;
     }
 }
 
@@ -1802,7 +2021,7 @@ function log(level, message) {
 }
 
 
-},{"./apiclient":5,"./collections":6,"./files":10,"./objects":13,"./users":15,"extend":1}],10:[function(_dereq_,module,exports){
+},{"./apiclient":6,"./channels":7,"./collections":8,"./files":12,"./objects":15,"./request":17,"./users":19,"extend":1}],12:[function(_dereq_,module,exports){
 
 var Q         = _dereq_("kew");
 var extend    = _dereq_("extend");
@@ -1948,7 +2167,7 @@ function createFilesContext(apiClient) {
     }
 }
 
-},{"extend":1,"kew":3}],11:[function(_dereq_,module,exports){
+},{"extend":1,"kew":3}],13:[function(_dereq_,module,exports){
 
 var extend  = _dereq_("extend");
 var Q       = _dereq_("kew");
@@ -1981,11 +2200,18 @@ module.exports = {
 }
 
 function errorFromXhr(xhr) {
-    var result = JSON.parse(xhr.responseText);
-    return new Error(result.errorMessage)
+    try {
+        var result = JSON.parse(xhr.responseText);
+        if(typeof result.errorMessage == "string") {
+            return new Error(result.errorMessage);
+        } else {
+            return result;
+        }
+    } catch(e) {}
+    return xhr.responseText;
 }
 
-},{"extend":1,"kew":3,"reqwest":4}],12:[function(_dereq_,module,exports){
+},{"extend":1,"kew":3,"reqwest":4}],14:[function(_dereq_,module,exports){
 /*
 Copyright (c) 2010-2013 Thomas Peri
 http://www.tumuski.com/
@@ -2215,7 +2441,7 @@ var Nibbler = function (options) {
   construct();
 };
 
-},{}],13:[function(_dereq_,module,exports){
+},{}],15:[function(_dereq_,module,exports){
 
 var extend      = _dereq_("extend");
 var query       = _dereq_("./query");
@@ -2225,8 +2451,10 @@ var Q           = _dereq_("kew");
 module.exports = createObjectsContext;
 
 var internalProperties = ["collectionName", "id", "internalId", "username", "created", "updated", "permissions", "save", "saveAll", "remove", "grant", "revoke", "sysCreated", "sysUpdated", "sysPermissions"];
+var nextContextId = 0;
 
 function createObjectsContext(apiClient, files, collections) {
+    var contextId = nextContextId++;
     var internalIds = [];
     var internalObjects = {};
 
@@ -2788,7 +3016,7 @@ function createObjectsContext(apiClient, files, collections) {
     }
 
     function createInternalId() {
-        var id = "internal-id-" + internalIds.length;
+        var id = "internal-id-" + contextId + "-" + internalIds.length;
         internalIds.push(id);
         return id;
     }
@@ -2935,7 +3163,7 @@ function createObjectsContext(apiClient, files, collections) {
     }
 }
 
-},{"./faillogger":8,"./query":14,"extend":1,"kew":3}],14:[function(_dereq_,module,exports){
+},{"./faillogger":10,"./query":16,"extend":1,"kew":3}],16:[function(_dereq_,module,exports){
 
 module.exports = function(options) {
 
@@ -3000,7 +3228,147 @@ module.exports = function(options) {
 
 };
 
-},{}],15:[function(_dereq_,module,exports){
+},{}],17:[function(_dereq_,module,exports){
+
+
+module.exports = createRequestContext;
+
+function createRequestContext(apiClient) {
+    return request;
+
+    function request(method, url, data) {
+        url = apiClient.url("/server" + url);
+        return apiClient.request(method, url, data);
+    }
+}
+
+},{}],18:[function(_dereq_,module,exports){
+
+var Q  = _dereq_("kew");
+var WS = _dereq_("ws");
+
+module.exports = createSocket;
+
+function createSocket(apiClient) {
+    var queue = [];
+    var realtimeSessionPromise = null;
+    var realtimeSessionId = "";
+    var webSocket = null;
+    var connectionIntervalId = null;
+    var handlers = {
+        open: [],
+        message: [],
+        error: [],
+        close: []
+    };
+
+    return {
+        connect: connect,
+        send: send,
+        on: on
+    }
+
+    function send(packet) {
+        if(typeof packet == "object") {
+            packet = JSON.stringify(packet);
+        }
+        if(webSocket && webSocket.readyState == 1) {
+            sendQueue();
+            webSocket.send(packet);
+        } else {
+            queue.push(packet);
+            connect();
+        }
+    }
+
+    function sendQueue() {
+        while(queue.length > 0) {
+            if(webSocket && webSocket.readyState == 1) {
+                var packet = queue.shift();
+                webSocket.send(packet);
+            } else {
+                connect();
+                break;
+            }
+        }
+    }
+
+    function on(event, handler) {
+        handlers[event].push(handler);
+    }
+
+    function connect() {
+        if(!realtimeSessionPromise) {
+            connectSession();
+        }
+        if(!connectionIntervalId) {
+            connectionIntervalId = setInterval(function() {
+                if(!webSocket || webSocket.readyState > 1) {
+                    realtimeSessionPromise.then(connectSocket);
+                }
+            }, 100);
+        }
+    }
+
+    function connectSession() {
+        var defer = Q.defer();
+        realtimeSessionPromise = defer.promise;
+        var url = apiClient.url("/messaging/realtime/sessions");
+        apiClient.request("post", url)
+                 .then(function(response) {
+                     realtimeSessionId = response.realtimeSessionId;
+                     defer.resolve();
+                 })
+                 .fail(function(error) {
+                     notifyHandlers("error", {error:error});
+                 });
+        return realtimeSessionPromise;
+    }
+
+    function connectSocket() {
+        var url = apiClient.url("/messaging/realtime", {}, {rsession: realtimeSessionId});
+        url = url.replace("http", "ws");
+        webSocket = createWebSocket(url);
+        webSocket.onopen = handleSocketOpen;
+        webSocket.onerror = handleSocketError;
+        webSocket.onmessage = handleSocketMessage;
+        webSocket.onclose = handleSocketClose;
+    }
+
+    function createWebSocket(url) {
+        if(typeof WebSocket != "undefined") {
+            return new WebSocket(url);
+        } else if(typeof WS != "undefined") {
+            return new WS(url);
+        }
+    }
+
+    function handleSocketOpen(event) {
+        sendQueue();
+        notifyHandlers("open", event);
+    }
+
+    function handleSocketError(event) {
+        notifyHandlers("error", event);
+    }
+
+    function handleSocketMessage(event) {
+        notifyHandlers("message", event);
+    }
+
+    function handleSocketClose(event) {
+        notifyHandlers("close", event);
+    }
+
+    function notifyHandlers(eventName, event) {
+        handlers[eventName].forEach(function(handler) {
+            handler(event);
+        });
+    }
+
+}
+
+},{"kew":3,"ws":5}],19:[function(_dereq_,module,exports){
 
 var extend    = _dereq_("extend");
 var Q         = _dereq_("kew");
@@ -3116,6 +3484,6 @@ function createUsersContext(apiClient, objects) {
 }
 
 
-},{"extend":1,"kew":3}]},{},[9])
-(9)
+},{"extend":1,"kew":3}]},{},[11])
+(11)
 });
