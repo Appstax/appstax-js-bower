@@ -1725,10 +1725,11 @@ function createChannelsContext(socket) {
         handlers = [];
     }
 
-    function createChannel(channelName, usernames) {
+    function createChannel(channelName, options) {
         var nameParts = channelName.split("/");
-        var channel = {
+        var channel = channels[channelName] = {
             type: nameParts[0],
+            created: false,
             wildcard: channelName.indexOf("*") != -1,
             on: function(eventName, handler) {
                 addHandler(channelName, eventName, handler)
@@ -1747,18 +1748,31 @@ function createChannelsContext(socket) {
                 sendPermission(channelName, "revoke", [username], permissions);
             }
         };
-        if(channel.type == "private" && !channel.wildcard) {
-            sendPacket({channel:channelName, command:"channel.create"});
-            if(usernames && usernames.length > 0) {
-                sendPermission(channelName, "grant", usernames, ["read", "write"]);
-            }
-        } else {
-            sendPacket({channel:channelName, command:"subscribe"});
+
+
+        switch(channel.type) {
+
+            case "private":
+                sendPacket({channel:channelName, command:"subscribe"});
+                if(options != undefined) {
+                    var usernames = options;
+                    sendPermission(channelName, "grant", usernames, ["read", "write"]);
+                }
+                break;
+
+            case "objects":
+                sendPacket({channel:channelName, command:"subscribe", filter: options || ""});
+                break;
+
+            default:
+                sendPacket({channel:channelName, command:"subscribe"});
         }
+
         return channel;
     }
 
     function sendPermission(channelName, change, usernames, permissions) {
+        sendCreate(channelName);
         permissions.forEach(function(permission) {
             sendPacket({
                 channel: channelName,
@@ -1768,12 +1782,19 @@ function createChannelsContext(socket) {
         });
     }
 
-    function getChannel(name, permissions) {
-        var channel = channels[name];
-        if(!channel) {
-            channels[name] = channel = createChannel(name, permissions);
+    function sendCreate(channelName) {
+        var channel = getChannel(channelName);
+        if(!channel.created) {
+            channel.created = true;
+            sendPacket({channel:channelName, command:"channel.create"});
         }
-        return channel;
+    }
+
+    function getChannel(name, permissions) {
+        if(!channels[name]) {
+            createChannel(name, permissions);
+        }
+        return channels[name];
     }
 
     function sendPacket(packet) {
@@ -1791,11 +1812,11 @@ function createChannelsContext(socket) {
         var filtered = [];
         if(channelName == "*") {
             filtered = handlers.filter(function(handler) {
-                return handler.eventName == eventName;
+                return handler.eventName == "*" || handler.eventName == eventName;
             });
         } else {
             filtered = handlers.filter(function(handler) {
-                return handler.eventName == eventName &&
+                return (handler.eventName == "*" || handler.eventName == eventName) &&
                        handler.regexp.test(channelName)
             });
         }
@@ -1819,7 +1840,7 @@ function createChannelsContext(socket) {
     }
 
     function handleSocketOpen(event) {
-        notifyHandlers("*", "open");
+        notifyHandlers("*", "open", {type: "open"});
     }
 
     function handleSocketError(event) {
@@ -1837,6 +1858,7 @@ function createChannelsContext(socket) {
 
         if(typeof data.channel === "string" &&
            typeof data.event   === "string") {
+            data.type = data.event;
             notifyHandlers(data.channel, data.event, data);
         }
     }
@@ -3444,16 +3466,20 @@ function createUsersContext(apiClient, objects) {
     function logout() {
         currentUser = null;
         apiClient.sessionId(null);
-        localStorage.removeItem("appstax_session_" + apiClient.appKey());
+        if(typeof localStorage != "undefined") {
+            localStorage.removeItem("appstax_session_" + apiClient.appKey());
+        }
     }
 
     function storeSession(sessionId, username, id) {
         apiClient.sessionId(sessionId);
-        localStorage.setItem("appstax_session_" + apiClient.appKey(), JSON.stringify({
-            username: username,
-            sessionId: sessionId,
-            userId: id
-        }));
+        if(typeof localStorage != "undefined") {
+            localStorage.setItem("appstax_session_" + apiClient.appKey(), JSON.stringify({
+                username: username,
+                sessionId: sessionId,
+                userId: id
+            }));
+        }
     }
 
     function restoreSession() {
