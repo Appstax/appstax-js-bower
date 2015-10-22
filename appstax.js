@@ -876,7 +876,7 @@ module.exports = {
 },{"1YiZ5S":2}],4:[function(_dereq_,module,exports){
 /*!
   * Reqwest! A general purpose XHR connection manager
-  * license MIT (c) Dustin Diaz 2014
+  * license MIT (c) Dustin Diaz 2015
   * https://github.com/ded/reqwest
   */
 
@@ -886,16 +886,30 @@ module.exports = {
   else context[name] = definition()
 }('reqwest', this, function () {
 
-  var win = window
-    , doc = document
-    , httpsRe = /^http/
+  var context = this
+
+  if ('window' in context) {
+    var doc = document
+      , byTag = 'getElementsByTagName'
+      , head = doc[byTag]('head')[0]
+  } else {
+    var XHR2
+    try {
+      // prevent browserify including xhr2
+      var xhr2 = 'xhr2'
+      XHR2 = _dereq_(xhr2)
+    } catch (ex) {
+      throw new Error('Peer dependency `xhr2` required! Please npm install xhr2')
+    }
+  }
+
+
+  var httpsRe = /^http/
     , protocolRe = /(^\w+):\/\//
     , twoHundo = /^(20\d|1223)$/ //http://stackoverflow.com/questions/10046972/msie-returns-status-code-of-1223-for-ajax-request
-    , byTag = 'getElementsByTagName'
     , readyState = 'readyState'
     , contentType = 'Content-Type'
     , requestedWith = 'X-Requested-With'
-    , head = doc[byTag]('head')[0]
     , uniqid = 0
     , callbackPrefix = 'reqwest_' + (+new Date())
     , lastValue // data stored by the most recent JSONP callback
@@ -925,16 +939,18 @@ module.exports = {
     , xhr = function(o) {
         // is it x-domain
         if (o['crossOrigin'] === true) {
-          var xhr = win[xmlHttpRequest] ? new XMLHttpRequest() : null
+          var xhr = context[xmlHttpRequest] ? new XMLHttpRequest() : null
           if (xhr && 'withCredentials' in xhr) {
             return xhr
-          } else if (win[xDomainRequest]) {
+          } else if (context[xDomainRequest]) {
             return new XDomainRequest()
           } else {
             throw new Error('Browser does not support cross-origin requests')
           }
-        } else if (win[xmlHttpRequest]) {
+        } else if (context[xmlHttpRequest]) {
           return new XMLHttpRequest()
+        } else if (XHR2) {
+          return new XHR2()
         } else {
           return new ActiveXObject('Microsoft.XMLHTTP')
         }
@@ -946,9 +962,9 @@ module.exports = {
       }
 
   function succeed(r) {
-    var protocol = protocolRe.exec(r.url);
-    protocol = (protocol && protocol[1]) || window.location.protocol;
-    return httpsRe.test(protocol) ? twoHundo.test(r.request.status) : !!r.request.response;
+    var protocol = protocolRe.exec(r.url)
+    protocol = (protocol && protocol[1]) || context.location.protocol
+    return httpsRe.test(protocol) ? twoHundo.test(r.request.status) : !!r.request.response
   }
 
   function handleReadyState(r, success, error) {
@@ -956,6 +972,7 @@ module.exports = {
       // use _aborted to mitigate against IE err c00c023f
       // (can't read props on aborted request objects)
       if (r._aborted) return error(r.request)
+      if (r._timedOut) return error(r.request, 'Request is aborted: timeout')
       if (r.request && r.request[readyState] == 4) {
         r.request.onreadystatechange = noop
         if (succeed(r)) success(r.request)
@@ -973,7 +990,7 @@ module.exports = {
       || defaultHeaders['accept'][o['type']]
       || defaultHeaders['accept']['*']
 
-    var isAFormData = o['data'] instanceof FormData;
+    var isAFormData = typeof FormData === 'function' && (o['data'] instanceof FormData);
     // breaks cross-origin requests with legacy browsers
     if (!o['crossOrigin'] && !headers[requestedWith]) headers[requestedWith] = defaultHeaders['requestedWith']
     if (!headers[contentType] && !isAFormData) headers[contentType] = o['contentType'] || defaultHeaders['contentType']
@@ -1015,7 +1032,7 @@ module.exports = {
       url = urlappend(url, cbkey + '=' + cbval) // no callback details, add 'em
     }
 
-    win[cbval] = generalCallback
+    context[cbval] = generalCallback
 
     script.type = 'text/javascript'
     script.src = url
@@ -1082,7 +1099,7 @@ module.exports = {
     http.open(method, url, o['async'] === false ? false : true)
     setHeaders(http, o)
     setCredentials(http, o)
-    if (win[xDomainRequest] && http instanceof win[xDomainRequest]) {
+    if (context[xDomainRequest] && http instanceof context[xDomainRequest]) {
         http.onload = fn
         http.onerror = err
         // NOTE: see
@@ -1112,6 +1129,7 @@ module.exports = {
 
   function setType(header) {
     // json, javascript, text/plain, text/html, xml
+    if (header === null) return undefined; //In case of no content-type.
     if (header.match('json')) return 'json'
     if (header.match('javascript')) return 'js'
     if (header.match('text')) return 'html'
@@ -1142,7 +1160,7 @@ module.exports = {
 
     if (o['timeout']) {
       this.timeout = setTimeout(function () {
-        self.abort()
+        timedOut()
       }, o['timeout'])
     }
 
@@ -1187,7 +1205,7 @@ module.exports = {
         switch (type) {
         case 'json':
           try {
-            resp = win.JSON ? win.JSON.parse(r) : eval('(' + r + ')')
+            resp = context.JSON ? context.JSON.parse(r) : eval('(' + r + ')')
           } catch (err) {
             return error(resp, 'Could not parse JSON in response', err)
           }
@@ -1218,6 +1236,11 @@ module.exports = {
       }
 
       complete(resp)
+    }
+
+    function timedOut() {
+      self._timedOut = true
+      self.request.abort()
     }
 
     function error(resp, msg, t) {
@@ -1703,7 +1726,7 @@ function createApiClient(options) {
     }
 }
 
-},{"./encoding":9,"./http-browser":13,"./socket":18,"extend":1,"kew":3}],7:[function(_dereq_,module,exports){
+},{"./encoding":9,"./http-browser":13,"./socket":20,"extend":1,"kew":3}],7:[function(_dereq_,module,exports){
 
 module.exports = createChannelsContext;
 
@@ -1958,7 +1981,7 @@ module.exports = {
     }
 }
 
-},{"./nibbler":14}],10:[function(_dereq_,module,exports){
+},{"./nibbler":16}],10:[function(_dereq_,module,exports){
 
 module.exports = {
     log: function(error) {
@@ -1986,6 +2009,8 @@ var collections = _dereq_("./collections");
 var apiClient   = _dereq_("./apiclient");
 var request     = _dereq_("./request");
 var channels    = _dereq_("./channels");
+var models      = _dereq_("./models");
+var createHub   = _dereq_("./hub");
 
 var defaults = {
     baseUrl: "https://appstax.com/api/latest/",
@@ -1999,6 +2024,7 @@ module.exports.app = createContext;
 function createContext(options) {
     var context = { init: init };
     var config  = {};
+    var hub = createHub();
 
     init(options);
     return context;
@@ -2019,9 +2045,10 @@ function createContext(options) {
         context.files       = files(context.apiClient);
         context.collections = collections();
         context.objects     = objects(context.apiClient, context.files, context.collections);
-        context.users       = users(context.apiClient, context.objects);
+        context.users       = users(context.apiClient, context.objects, hub);
         context.request     = request(context.apiClient)
         context.channels    = channels(context.apiClient.socket(), context.objects);
+        context.models      = models(context.objects, context.users, context.channels, context.apiClient.socket(), hub);
 
         // expose shortcuts
         context.object      = context.objects.createObject;
@@ -2037,6 +2064,7 @@ function createContext(options) {
         context.file        = context.files.createFile;
         context.sessionId   = context.apiClient.sessionId;
         context.channel     = context.channels.getChannel;
+        context.model       = context.models.create;
     }
 }
 
@@ -2047,7 +2075,7 @@ function log(level, message) {
 }
 
 
-},{"./apiclient":6,"./channels":7,"./collections":8,"./files":12,"./objects":15,"./request":17,"./users":19,"extend":1}],12:[function(_dereq_,module,exports){
+},{"./apiclient":6,"./channels":7,"./collections":8,"./files":12,"./hub":14,"./models":15,"./objects":17,"./request":19,"./users":21,"extend":1}],12:[function(_dereq_,module,exports){
 
 var Q         = _dereq_("kew");
 var extend    = _dereq_("extend");
@@ -2055,7 +2083,6 @@ var extend    = _dereq_("extend");
 module.exports = createFilesContext;
 
 function createFilesContext(apiClient) {
-    var internalFiles = [];
 
     return {
         create: createFile,
@@ -2088,6 +2115,7 @@ function createFilesContext(apiClient) {
             Object.defineProperty(file, "url", { get: function() { return internal.url; }, enumerable:true });
             Object.defineProperty(file, "preview", { value: function() { return previewFile(internal); }});
             Object.defineProperty(file, "imageUrl", { value: function(operation, options) { return imageUrl(internal, operation, options); }});
+            Object.defineProperty(file, "internalFile", { value: internal, enumerable: false, writable: false });
         } else {
             throw new Error("Invalid file options");
         }
@@ -2102,7 +2130,6 @@ function createFilesContext(apiClient) {
             url: options.url || "",
             status: "new"
         }
-        internalFiles.push(internal);
         return internal;
     }
 
@@ -2129,18 +2156,9 @@ function createFilesContext(apiClient) {
         return internalFile.url.replace("/files/", "/images/" + operation + "/" + o.width + "/" + o.height + "/");
     }
 
-    function getInternalFile(file) {
-        for(var i = 0; i < internalFiles.length; i++) {
-            if(internalFiles[i].file == file) {
-                return internalFiles[i];
-            }
-        }
-        return null;
-    }
-
     function saveFile(collectionName, objectId, propertyName, file) {
         var defer = Q.defer();
-        var internal = getInternalFile(file);
+        var internal = file.internalFile;
         internal.status = "saving";
         var url = urlForFile(collectionName, objectId, propertyName, file.filename);
         var data = new FormData();
@@ -2175,7 +2193,7 @@ function createFilesContext(apiClient) {
 
     function getNativeFile(file) {
         var nativeFile = null;
-        var internal = getInternalFile(file);
+        var internal = file.internalFile;
         if(internal != null) {
             nativeFile = internal.nativeFile;
         }
@@ -2183,18 +2201,18 @@ function createFilesContext(apiClient) {
     }
 
     function isFile(file) {
-        return getInternalFile(file) != null;
+        return file != null && file != undefined && file.internalFile != null;
     }
 
     function fileStatus(file, status) {
         if(typeof status === "string") {
-            getInternalFile(file).status = status;
+            file.internalFile.status = status;
         }
-        return getInternalFile(file).status;
+        return file.internalFile.status;
     }
 
     function setUrl(file, url) {
-        var internal = getInternalFile(file);
+        var internal = file.internalFile;
         if(internal) {
             internal.url = url;
         }
@@ -2246,6 +2264,280 @@ function errorFromXhr(xhr) {
 }
 
 },{"extend":1,"kew":3,"reqwest":4}],14:[function(_dereq_,module,exports){
+
+var extend = _dereq_("extend");
+
+module.exports = createHub;
+
+function createHub() {
+
+    var handlers = [];
+
+    return {
+        on: on,
+        pub: pub
+    }
+
+    function on(type, handler) {
+        handlers.push({
+            type: type,
+            handler: handler
+        });
+    }
+
+    function pub(type, data) {
+        var event = extend({}, data, {type: type});
+        handlers.forEach(function(handler) {
+            if(handler.type == type) {
+                handler.handler(event);
+            }
+        });
+    }
+}
+
+},{"extend":1}],15:[function(_dereq_,module,exports){
+
+module.exports = createModelContext;
+
+function createModelContext(objects, users, channels, socket, hub) {
+    return {
+        create: function() {
+            return createModel(objects, users, channels, socket, hub);
+        }
+    }
+}
+
+function createModel(objects, users, channels, socket, hub) {
+    var observers = [];
+    var handlers = [];
+    var allObjects = {};
+
+    var api = {
+        watch: addObserver,
+        on: addHandler
+    }
+    var model = {
+        root: api,
+        normalize: normalize,
+        notifyHandlers: notifyHandlers,
+        updateObject: updateObject
+    }
+    return api;
+
+    function addObserver(name, options) {
+        options = options || {};
+
+        var observer;
+        if("currentUser" == name) {
+            observer = createCurrentUserObserver(model, objects, users, channels, hub);
+        } else if("status" == name) {
+            observer = createConnectionStatusObserver(model, socket);
+        } else {
+            observer = createArrayObserver(name, options, model, objects, channels);
+        }
+        observers.push(observer);
+        observer.load();
+        observer.connect();
+    }
+
+    function addHandler(event, handler) {
+        handlers.push({event:event, handler:handler});
+    }
+
+    function notifyHandlers(event, data) {
+        handlers.forEach(function(handler) {
+            if(handler.event == event) {
+                handler.handler(data);
+            }
+        });
+    }
+
+    function normalize(object) {
+        if(!object) {
+            return object;
+        }
+        var id = object.id;
+        if(!allObjects[id]) {
+            allObjects[id] = object;
+        }
+        return allObjects[id]
+    }
+
+    function updateObject(updated) {
+        var object = allObjects[updated.id];
+        if(object) {
+            objects.copy(updated, object);
+        } else {
+            allObjects[updated.id] = updated;
+        }
+        observers.forEach(function(observer) {
+            observer.sort && observer.sort();
+        });
+        notifyHandlers("change");
+    }
+}
+
+function createArrayObserver(name, options, model, objects, channels) {
+    var observer = {};
+    observer.name = name;
+    observer.collection = name;
+    observer.order = options.order || "-created";
+    observer.sort = sort;
+    observer.load = load;
+    observer.connect = connect;
+
+    set([]);
+    return observer;
+
+    function set(o) {
+        o = o.map(model.normalize);
+        extendArray(o);
+        model.root[observer.name] = o;
+        sort();
+        model.notifyHandlers("change");
+    }
+
+    function get() {
+        return model.root[observer.name];
+    }
+
+    function add(o) {
+        o = model.normalize(o);
+        get().push(o);
+        observer.sort();
+        model.notifyHandlers("change");
+    }
+
+    function remove(o) {
+        get().splice(indexOf(o), 1);
+        model.notifyHandlers("change");
+    }
+
+    function indexOf(o) {
+        var index = -1;
+        get().some(function(a, i) {
+            if(a.id == o.id) {
+                index = i;
+                return true;
+            }
+            return false;
+        });
+        return index;
+    }
+
+    function sort() {
+        objects.sort(get(), observer.order);
+    }
+
+    function load() {
+        objects.findAll(observer.collection).then(set);
+    }
+
+    function connect() {
+        var channel = channels.getChannel("objects/" + observer.collection);
+        channel.on("object.created", function(event) {
+            add(event.object);
+        });
+        channel.on("object.deleted", function(event) {
+            remove(event.object);
+        });
+        channel.on("object.updated", function(event) {
+            model.updateObject(event.object);
+        });
+    }
+
+    function extendArray(array) {
+        array.has = _filterHas;
+
+        function _filterHas(key, value) {
+            var filtered = array.filter(function(o) {
+                var expected = [].concat(value);
+                var actual   = [].concat(o[key]);
+                return expected.some(function(v1) {
+                    return actual.some(function(v2) {
+                        return (v1.id || v1) == (v2.id || v2);
+                    });
+                });
+            });
+            extendArray(filtered);
+            return filtered;
+        }
+    }
+}
+
+function createCurrentUserObserver(model, objects, users, channels, hub) {
+    var observer = {}
+    observer.name = "currentUser";
+    observer.load = load;
+    observer.connect = connect;
+
+    init();
+    return observer;
+
+    function init() {
+        set(null);
+        hub.on("users.login", function(event) {
+            set(event.user);
+        });
+        hub.on("users.signup", function(event) {
+            set(event.user);
+        });
+        hub.on("users.logout", function() {
+            set(null);
+        });
+    }
+
+    function set(o) {
+        o = model.normalize(o);
+        model.root[observer.name] = o;
+    }
+
+    function load() {
+        var user = users.currentUser();
+        if(user) {
+            user.refresh().then(set);
+        }
+    }
+
+    function connect() {
+        var ch = channels.getChannel("objects/users");
+        ch.on("object.updated", function(event) {
+            model.updateObject(event.object);
+        });
+    }
+}
+
+function createConnectionStatusObserver(model, socket) {
+    var observer = {};
+    observer.name = "status";
+    observer.load = load;
+    observer.connect = connect;
+
+    init();
+    return observer;
+
+    function init() {
+        set(socket.status());
+        socket.on("status", function(event) {
+            set(socket.status());
+        });
+    }
+
+    function set(o) {
+        model.root[observer.name] = o;
+        model.notifyHandlers("change");
+    }
+
+    function load() {
+
+    }
+
+    function connect() {
+
+    }
+}
+
+},{}],16:[function(_dereq_,module,exports){
 /*
 Copyright (c) 2010-2013 Thomas Peri
 http://www.tumuski.com/
@@ -2475,7 +2767,7 @@ var Nibbler = function (options) {
   construct();
 };
 
-},{}],15:[function(_dereq_,module,exports){
+},{}],17:[function(_dereq_,module,exports){
 
 var extend      = _dereq_("extend");
 var query       = _dereq_("./query");
@@ -2489,8 +2781,7 @@ var nextContextId = 0;
 
 function createObjectsContext(apiClient, files, collections) {
     var contextId = nextContextId++;
-    var internalIds = [];
-    var internalObjects = {};
+    var internalIds = 0;
 
     var prototype = {
         save: function() {
@@ -2516,7 +2807,7 @@ function createObjectsContext(apiClient, files, collections) {
             if(typeof usernames === "string") {
                 usernames = [usernames];
             }
-            var internal = getInternalObject(this);
+            var internal = this.internalObject;
             usernames.forEach(function(username) {
                 internal.grants.push({
                     username: username,
@@ -2528,7 +2819,7 @@ function createObjectsContext(apiClient, files, collections) {
             if(typeof usernames === "string") {
                 usernames = [usernames];
             }
-            var internal = getInternalObject(this);
+            var internal = this.internalObject;
             usernames.forEach(function(username) {
                 internal.revokes.push({
                     username: username,
@@ -2555,7 +2846,9 @@ function createObjectsContext(apiClient, files, collections) {
         getObjectStatus: getObjectStatus,
         findAll: findAll,
         find: find,
-        search: search
+        search: search,
+        sort: sortObjects,
+        copy: copyValues
     };
 
     function createObject(collectionName, properties, factory) {
@@ -2563,9 +2856,10 @@ function createObjectsContext(apiClient, files, collections) {
         var object = Object.create(prototype);
         Object.defineProperty(object, "id", { get: function() { return internal.id; }, enumerable:true });
         Object.defineProperty(object, "internalId", { writable: false, value: internal.internalId, enumerable:true });
+        Object.defineProperty(object, "internalObject", { writable: false, value: internal, enumerable: false });
         Object.defineProperty(object, "collectionName", { get: function() { return internal.collectionName; }, enumerable:true });
-        Object.defineProperty(object, "created", { get: function() { return internal.created; }, enumerable:true });
-        Object.defineProperty(object, "updated", { get: function() { return internal.updated; }, enumerable:true });
+        Object.defineProperty(object, "created", { get: function() { return new Date(internal.sysValues.sysCreated); }, enumerable:true });
+        Object.defineProperty(object, "updated", { get: function() { return new Date(internal.sysValues.sysUpdated); }, enumerable:true });
         Object.defineProperty(object, "permissions", { get: function() { return internal.sysValues.sysPermissions; }, enumerable: true });
         if(collectionName == "users") {
             Object.defineProperty(object, "username", { get:function() { return internal.sysValues.sysUsername; }, enumerable:true });
@@ -2581,17 +2875,11 @@ function createObjectsContext(apiClient, files, collections) {
     }
 
     function fillObjectWithValues(object, properties, factory) {
-        var internal = getInternalObject(object);
+        var internal = object.internalObject;
         var filteredProperties = {};
         if(typeof properties === "object") {
             var sysValues = internal.sysValues;
             internal.setId(properties.sysObjectId);
-            if(properties.sysCreated) {
-                internal.created = new Date(properties.sysCreated)
-            }
-            if(properties.sysUpdated) {
-                internal.updated = new Date(properties.sysUpdated)
-            }
             Object.keys(properties).forEach(function(key) {
                 var value = properties[key];
                 if(key.indexOf("sys") === 0) {
@@ -2659,17 +2947,12 @@ function createObjectsContext(apiClient, files, collections) {
             setId: function(id) { if(id) { this.id = id; }},
             resetPermissions: function() { this.grants = []; this.revokes = []; }
         }
-        internalObjects[object.internalId] = object;
         return object;
-    }
-
-    function getInternalObject(object) {
-        return internalObjects[object.internalId];
     }
 
     function refreshObject(object) {
         var defer = Q.defer();
-        var internal = getInternalObject(object);
+        var internal = object.internalObject;
         if(internal.status === "new") {
             defer.resolve(object);
         } else {
@@ -2688,7 +2971,7 @@ function createObjectsContext(apiClient, files, collections) {
     }
 
     function saveObject(object, defer) {
-        var internal = getInternalObject(object)
+        var internal = object.internalObject
         var defer = typeof defer == "object" ? defer : Q.defer();
         if(internal.status === "saving") {
             setTimeout(function() {
@@ -2749,7 +3032,7 @@ function createObjectsContext(apiClient, files, collections) {
             depth = options;
         }
         findById(object.collectionName, object.id, {expand:depth}).then(function(expanded) {
-            var internal = getInternalObject(object);
+            var internal = object.internalObject;
             var relations = Object.keys(internal.relations);
             relations.forEach(function(relation) {
                 object[relation] = expanded[relation];
@@ -2788,7 +3071,7 @@ function createObjectsContext(apiClient, files, collections) {
     function savePermissionChanges(object) {
         var defer = Q.defer();
         var url = apiClient.url("/permissions");
-        var internal = getInternalObject(object);
+        var internal = object.internalObject;
         var grants = internal.grants.map(_convertChange);
         var revokes = internal.revokes.map(_convertChange);
         internal.resetPermissions();
@@ -2888,7 +3171,7 @@ function createObjectsContext(apiClient, files, collections) {
 
     function getRelatedObjects(object) {
         var related = [];
-        var internal = getInternalObject(object);
+        var internal = object.internalObject;
         Object.keys(internal.relations).forEach(function(key) {
             var property = object[key];
             if(property == null) {
@@ -2900,7 +3183,7 @@ function createObjectsContext(apiClient, files, collections) {
     }
 
     function getRelationChanges(object, propertyName) {
-        var internal = getInternalObject(object);
+        var internal = object.internalObject;
         var relation = internal.relations[propertyName];
         var changes = {
             additions: [],
@@ -2927,7 +3210,7 @@ function createObjectsContext(apiClient, files, collections) {
     }
 
     function applyRelationChanges(object, savedData) {
-        var internal = getInternalObject(object);
+        var internal = object.internalObject;
         Object.keys(internal.relations).forEach(function(key) {
             var relation = internal.relations[key];
             var changes = savedData[key].sysRelationChanges;
@@ -2941,7 +3224,7 @@ function createObjectsContext(apiClient, files, collections) {
 
     function detectUndeclaredRelations(object) {
         var collection = collections.get(object.collectionName);
-        var relations = getInternalObject(object).relations;
+        var relations = object.internalObject.relations;
 
         var properties = getProperties(object);
         Object.keys(properties).forEach(function(key) {
@@ -2986,7 +3269,7 @@ function createObjectsContext(apiClient, files, collections) {
                 data[key] = object[key];
             }
         });
-        var sysValues = getInternalObject(object).sysValues;
+        var sysValues = object.internalObject.sysValues;
         Object.keys(sysValues).forEach(function(key) {
             if(internalProperties.indexOf(key) == -1) {
                 data[key] = sysValues[key];
@@ -3017,7 +3300,7 @@ function createObjectsContext(apiClient, files, collections) {
     }
 
     function getPropertiesForSaving(object) {
-        var internal = getInternalObject(object);
+        var internal = object.internalObject;
         var properties = getProperties(object);
         Object.keys(properties).forEach(function(key) {
             var property = properties[key];
@@ -3048,8 +3331,8 @@ function createObjectsContext(apiClient, files, collections) {
     }
 
     function createInternalId() {
-        var id = "internal-id-" + contextId + "-" + internalIds.length;
-        internalIds.push(id);
+        var id = "internal-id-" + contextId + "-" + internalIds;
+        internalIds++;
         return id;
     }
 
@@ -3173,7 +3456,7 @@ function createObjectsContext(apiClient, files, collections) {
     }
 
     function getObjectStatus(object) {
-        var internal = getInternalObject(object);
+        var internal = object.internalObject;
         return internal ? internal.status : undefined;
     }
 
@@ -3184,9 +3467,50 @@ function createObjectsContext(apiClient, files, collections) {
     function isObject(object) {
         return object !== undefined && object !== null;
     }
+
+    function copyValues(from, to) {
+        if(from == null || to == null) {
+            return;
+        }
+        Object.keys(from)
+              .filter(function(key) {
+                  return internalProperties.indexOf(key) == -1;
+              })
+              .forEach(function(key) {
+                  to[key] = from[key];
+              });
+        Object.keys(from.internalObject.sysValues)
+              .forEach(function(key) {
+                  to.internalObject.sysValues[key] = from.internalObject.sysValues[key];
+              });
+    }
+
+    function sortObjects(objects, order) {
+        order = order || ""
+        var dir = 1;
+        var key = order;
+        if(order.indexOf("-") == 0) {
+            dir = -1;
+            key = order.substr(1);
+        }
+        if(typeof objects.sort == "function") {
+            objects.sort(function(o1, o2) {
+                var d1 = o1[key];
+                var d2 = o2[key];
+                if(typeof d1 == "undefined") { d1 = 0; }
+                if(typeof d2 == "undefined") { d2 = 0; }
+                if(d1.getTime) { d1 = d1.getTime(); }
+                if(d2.getTime) { d2 = d2.getTime(); }
+
+                if(d1 > d2) { return dir; }
+                if(d1 < d2) { return -dir; }
+                return 0;
+            });
+        }
+    }
 }
 
-},{"./faillogger":10,"./query":16,"extend":1,"kew":3}],16:[function(_dereq_,module,exports){
+},{"./faillogger":10,"./query":18,"extend":1,"kew":3}],18:[function(_dereq_,module,exports){
 
 module.exports = function(options) {
 
@@ -3251,7 +3575,7 @@ module.exports = function(options) {
 
 };
 
-},{}],17:[function(_dereq_,module,exports){
+},{}],19:[function(_dereq_,module,exports){
 
 
 module.exports = createRequestContext;
@@ -3265,7 +3589,7 @@ function createRequestContext(apiClient) {
     }
 }
 
-},{}],18:[function(_dereq_,module,exports){
+},{}],20:[function(_dereq_,module,exports){
 
 var Q  = _dereq_("kew");
 var WS = _dereq_("ws");
@@ -3278,15 +3602,19 @@ function createSocket(apiClient) {
     var realtimeSessionId = "";
     var webSocket = null;
     var connectionIntervalId = null;
+    var status = "disconnected";
     var handlers = {
         open: [],
         message: [],
         error: [],
-        close: []
+        close: [],
+        status: []
     };
 
     return {
         connect: connect,
+        disconnect: disconnect,
+        status: function() { return status },
         send: send,
         on: on
     }
@@ -3320,6 +3648,12 @@ function createSocket(apiClient) {
         handlers[event].push(handler);
     }
 
+    function disconnect() {
+        clearInterval(connectionIntervalId);
+        webSocket && webSocket.close();
+        realtimeSessionPromise = null;
+    }
+
     function connect() {
         if(!realtimeSessionPromise) {
             connectSession();
@@ -3327,6 +3661,7 @@ function createSocket(apiClient) {
         if(!connectionIntervalId) {
             connectionIntervalId = setInterval(function() {
                 if(!webSocket || webSocket.readyState > 1) {
+                    setStatus("connecting");
                     realtimeSessionPromise.then(connectSocket);
                 }
             }, 100);
@@ -3334,6 +3669,7 @@ function createSocket(apiClient) {
     }
 
     function connectSession() {
+        setStatus("connecting");
         var defer = Q.defer();
         realtimeSessionPromise = defer.promise;
         var url = apiClient.url("/messaging/realtime/sessions");
@@ -3367,8 +3703,9 @@ function createSocket(apiClient) {
     }
 
     function handleSocketOpen(event) {
-        sendQueue();
         notifyHandlers("open", event);
+        setStatus("connected");
+        sendQueue();
     }
 
     function handleSocketError(event) {
@@ -3381,6 +3718,7 @@ function createSocket(apiClient) {
 
     function handleSocketClose(event) {
         notifyHandlers("close", event);
+        setStatus("disconnected");
     }
 
     function notifyHandlers(eventName, event) {
@@ -3389,9 +3727,20 @@ function createSocket(apiClient) {
         });
     }
 
+    function setStatus(newStatus) {
+        var oldStatus = status;
+        status = newStatus;
+        if(newStatus != oldStatus) {
+            notifyHandlers("status", {
+                type: "status",
+                status: status
+            });
+        }
+    }
+
 }
 
-},{"kew":3,"ws":5}],19:[function(_dereq_,module,exports){
+},{"kew":3,"ws":5}],21:[function(_dereq_,module,exports){
 
 var extend    = _dereq_("extend");
 var Q         = _dereq_("kew");
@@ -3400,7 +3749,7 @@ module.exports = createUsersContext;
 
 var internalProperties = ["id", "username", "save"];
 
-function createUsersContext(apiClient, objects) {
+function createUsersContext(apiClient, objects, hub) {
 
     var currentUser = null;
 
@@ -3444,6 +3793,7 @@ function createUsersContext(apiClient, objects) {
                          user = handleSignupOrLoginSuccess(username, result);
                      }
                      defer.resolve(user);
+                     hub.pub("users.signup", {user: currentUser});
                  })
                  .fail(function(error) {
                      defer.reject(error);
@@ -3458,6 +3808,7 @@ function createUsersContext(apiClient, objects) {
                  .then(function(result) {
                      handleSignupOrLoginSuccess(username, result);
                      defer.resolve(currentUser);
+                     hub.pub("users.login", {user: currentUser});
                  })
                  .fail(function(error) {
                      defer.reject(error);
@@ -3478,6 +3829,7 @@ function createUsersContext(apiClient, objects) {
         if(typeof localStorage != "undefined") {
             localStorage.removeItem("appstax_session_" + apiClient.appKey());
         }
+        hub.pub("users.logout");
     }
 
     function storeSession(sessionId, username, id) {
