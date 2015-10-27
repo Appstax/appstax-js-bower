@@ -2105,6 +2105,15 @@ function createFilesContext(apiClient) {
                 filename: nativeFile.name,
                 nativeFile: nativeFile
             });
+        } else if(isFileInput(options)) {
+            if(options.files.length == 0) {
+                return undefined;
+            }
+            var nativeFile = options.files[0];
+            internal = createInternalFile(file, {
+                filename: nativeFile.name,
+                nativeFile: nativeFile
+            });
         } else {
             internal = createInternalFile(file, options);
             internal.status = "saved";
@@ -2202,6 +2211,12 @@ function createFilesContext(apiClient) {
 
     function isFile(file) {
         return file != null && file != undefined && file.internalFile != null;
+    }
+
+    function isFileInput(input) {
+        return typeof input != "undefined" &&
+               input.nodeName == "INPUT" &&
+               input.type == "file";
     }
 
     function fileStatus(file, status) {
