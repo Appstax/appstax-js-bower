@@ -81,6 +81,8 @@ module.exports = function extend() {
 
 
 },{}],2:[function(_dereq_,module,exports){
+
+},{}],3:[function(_dereq_,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -145,7 +147,7 @@ process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 
-},{}],3:[function(_dereq_,module,exports){
+},{}],4:[function(_dereq_,module,exports){
 (function (process){
 
 /**
@@ -873,7 +875,7 @@ module.exports = {
 }
 
 }).call(this,_dereq_("1YiZ5S"))
-},{"1YiZ5S":2}],4:[function(_dereq_,module,exports){
+},{"1YiZ5S":3}],5:[function(_dereq_,module,exports){
 /*!
   * Reqwest! A general purpose XHR connection manager
   * license MIT (c) Dustin Diaz 2015
@@ -895,9 +897,7 @@ module.exports = {
   } else {
     var XHR2
     try {
-      // prevent browserify including xhr2
-      var xhr2 = 'xhr2'
-      XHR2 = _dereq_(xhr2)
+      XHR2 = _dereq_('xhr2')
     } catch (ex) {
       throw new Error('Peer dependency `xhr2` required! Please npm install xhr2')
     }
@@ -990,7 +990,7 @@ module.exports = {
       || defaultHeaders['accept'][o['type']]
       || defaultHeaders['accept']['*']
 
-    var isAFormData = typeof FormData === 'function' && (o['data'] instanceof FormData);
+    var isAFormData = typeof FormData !== 'undefined' && (o['data'] instanceof FormData);
     // breaks cross-origin requests with legacy browsers
     if (!o['crossOrigin'] && !headers[requestedWith]) headers[requestedWith] = defaultHeaders['requestedWith']
     if (!headers[contentType] && !isAFormData) headers[contentType] = o['contentType'] || defaultHeaders['contentType']
@@ -1507,7 +1507,7 @@ module.exports = {
   return reqwest
 });
 
-},{}],5:[function(_dereq_,module,exports){
+},{"xhr2":2}],6:[function(_dereq_,module,exports){
 
 /**
  * Module dependencies.
@@ -1552,7 +1552,7 @@ function ws(uri, protocols, opts) {
 
 if (WebSocket) ws.prototype = WebSocket.prototype;
 
-},{}],6:[function(_dereq_,module,exports){
+},{}],7:[function(_dereq_,module,exports){
 
 var extend   = _dereq_("extend");
 var Q        = _dereq_("kew");
@@ -1726,7 +1726,7 @@ function createApiClient(options) {
     }
 }
 
-},{"./encoding":9,"./http-browser":13,"./socket":20,"extend":1,"kew":3}],7:[function(_dereq_,module,exports){
+},{"./encoding":10,"./http-browser":14,"./socket":21,"extend":1,"kew":4}],8:[function(_dereq_,module,exports){
 
 module.exports = createChannelsContext;
 
@@ -1892,7 +1892,7 @@ function createChannelsContext(socket, objects) {
 }
 
 
-},{}],8:[function(_dereq_,module,exports){
+},{}],9:[function(_dereq_,module,exports){
 
 module.exports = createCollectionsContext;
 
@@ -1955,7 +1955,7 @@ function createCollectionsContext() {
     }
 }
 
-},{}],9:[function(_dereq_,module,exports){
+},{}],10:[function(_dereq_,module,exports){
 
 var nibbler = _dereq_("./nibbler");
 
@@ -1981,7 +1981,7 @@ module.exports = {
     }
 }
 
-},{"./nibbler":16}],10:[function(_dereq_,module,exports){
+},{"./nibbler":17}],11:[function(_dereq_,module,exports){
 
 module.exports = {
     log: function(error) {
@@ -1999,7 +1999,7 @@ module.exports = {
     }
 }
 
-},{}],11:[function(_dereq_,module,exports){
+},{}],12:[function(_dereq_,module,exports){
 
 var extend      = _dereq_("extend");
 var objects     = _dereq_("./objects");
@@ -2075,7 +2075,7 @@ function log(level, message) {
 }
 
 
-},{"./apiclient":6,"./channels":7,"./collections":8,"./files":12,"./hub":14,"./models":15,"./objects":17,"./request":19,"./users":21,"extend":1}],12:[function(_dereq_,module,exports){
+},{"./apiclient":7,"./channels":8,"./collections":9,"./files":13,"./hub":15,"./models":16,"./objects":18,"./request":20,"./users":22,"extend":1}],13:[function(_dereq_,module,exports){
 
 var Q         = _dereq_("kew");
 var extend    = _dereq_("extend");
@@ -2234,7 +2234,7 @@ function createFilesContext(apiClient) {
     }
 }
 
-},{"extend":1,"kew":3}],13:[function(_dereq_,module,exports){
+},{"extend":1,"kew":4}],14:[function(_dereq_,module,exports){
 
 var extend  = _dereq_("extend");
 var Q       = _dereq_("kew");
@@ -2278,7 +2278,7 @@ function errorFromXhr(xhr) {
     return xhr.responseText;
 }
 
-},{"extend":1,"kew":3,"reqwest":4}],14:[function(_dereq_,module,exports){
+},{"extend":1,"kew":4,"reqwest":5}],15:[function(_dereq_,module,exports){
 
 var extend = _dereq_("extend");
 
@@ -2310,7 +2310,7 @@ function createHub() {
     }
 }
 
-},{"extend":1}],15:[function(_dereq_,module,exports){
+},{"extend":1}],16:[function(_dereq_,module,exports){
 
 module.exports = createModelContext;
 
@@ -2552,7 +2552,7 @@ function createConnectionStatusObserver(model, socket) {
     }
 }
 
-},{}],16:[function(_dereq_,module,exports){
+},{}],17:[function(_dereq_,module,exports){
 /*
 Copyright (c) 2010-2013 Thomas Peri
 http://www.tumuski.com/
@@ -2782,7 +2782,7 @@ var Nibbler = function (options) {
   construct();
 };
 
-},{}],17:[function(_dereq_,module,exports){
+},{}],18:[function(_dereq_,module,exports){
 
 var extend      = _dereq_("extend");
 var query       = _dereq_("./query");
@@ -3525,7 +3525,7 @@ function createObjectsContext(apiClient, files, collections) {
     }
 }
 
-},{"./faillogger":10,"./query":18,"extend":1,"kew":3}],18:[function(_dereq_,module,exports){
+},{"./faillogger":11,"./query":19,"extend":1,"kew":4}],19:[function(_dereq_,module,exports){
 
 module.exports = function(options) {
 
@@ -3590,7 +3590,7 @@ module.exports = function(options) {
 
 };
 
-},{}],19:[function(_dereq_,module,exports){
+},{}],20:[function(_dereq_,module,exports){
 
 
 module.exports = createRequestContext;
@@ -3604,7 +3604,7 @@ function createRequestContext(apiClient) {
     }
 }
 
-},{}],20:[function(_dereq_,module,exports){
+},{}],21:[function(_dereq_,module,exports){
 
 var Q  = _dereq_("kew");
 var WS = _dereq_("ws");
@@ -3755,7 +3755,7 @@ function createSocket(apiClient) {
 
 }
 
-},{"kew":3,"ws":5}],21:[function(_dereq_,module,exports){
+},{"kew":4,"ws":6}],22:[function(_dereq_,module,exports){
 
 var extend    = _dereq_("extend");
 var Q         = _dereq_("kew");
@@ -3892,6 +3892,6 @@ function createUsersContext(apiClient, objects, hub) {
 }
 
 
-},{"extend":1,"kew":3}]},{},[11])
-(11)
+},{"extend":1,"kew":4}]},{},[12])
+(12)
 });
