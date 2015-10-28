@@ -3687,7 +3687,7 @@ function createSocket(apiClient) {
         setStatus("connecting");
         var defer = Q.defer();
         realtimeSessionPromise = defer.promise;
-        var url = apiClient.url("/messaging/realtime/sessions");
+        var url = apiClient.url("/messaging/realtime/sessions", {}, {unique: (Math.random() * Date.now()).toString(16)});
         apiClient.request("post", url)
                  .then(function(response) {
                      realtimeSessionId = response.realtimeSessionId;
