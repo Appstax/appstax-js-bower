@@ -4,79 +4,79 @@ var toString = Object.prototype.toString;
 var undefined;
 
 var isPlainObject = function isPlainObject(obj) {
-  "use strict";
-  if (!obj || toString.call(obj) !== '[object Object]' || obj.nodeType || obj.setInterval) {
-    return false;
-  }
+    "use strict";
+    if (!obj || toString.call(obj) !== '[object Object]' || obj.nodeType || obj.setInterval) {
+        return false;
+    }
 
-  var has_own_constructor = hasOwn.call(obj, 'constructor');
-  var has_is_property_of_method = obj.constructor && obj.constructor.prototype && hasOwn.call(obj.constructor.prototype, 'isPrototypeOf');
-  // Not own constructor property must be Object
-  if (obj.constructor && !has_own_constructor && !has_is_property_of_method) {
-    return false;
-  }
+    var has_own_constructor = hasOwn.call(obj, 'constructor');
+    var has_is_property_of_method = obj.constructor && obj.constructor.prototype && hasOwn.call(obj.constructor.prototype, 'isPrototypeOf');
+    // Not own constructor property must be Object
+    if (obj.constructor && !has_own_constructor && !has_is_property_of_method) {
+        return false;
+    }
 
-  // Own properties are enumerated firstly, so to speed up,
-  // if last one is own, then all properties are own.
-  var key;
-  for (key in obj) {}
+    // Own properties are enumerated firstly, so to speed up,
+    // if last one is own, then all properties are own.
+    var key;
+    for (key in obj) {}
 
-  return key === undefined || hasOwn.call(obj, key);
+    return key === undefined || hasOwn.call(obj, key);
 };
 
 module.exports = function extend() {
-  "use strict";
-  var options, name, src, copy, copyIsArray, clone,
-    target = arguments[0],
-    i = 1,
-    length = arguments.length,
-    deep = false;
+    "use strict";
+    var options, name, src, copy, copyIsArray, clone,
+        target = arguments[0],
+        i = 1,
+        length = arguments.length,
+        deep = false;
 
-  // Handle a deep copy situation
-  if (typeof target === "boolean") {
-    deep = target;
-    target = arguments[1] || {};
-    // skip the boolean and the target
-    i = 2;
-  } else if (typeof target !== "object" && typeof target !== "function" || target == undefined) {
-      target = {};
-  }
-
-  for (; i < length; ++i) {
-    // Only deal with non-null/undefined values
-    if ((options = arguments[i]) != null) {
-      // Extend the base object
-      for (name in options) {
-        src = target[name];
-        copy = options[name];
-
-        // Prevent never-ending loop
-        if (target === copy) {
-          continue;
-        }
-
-        // Recurse if we're merging plain objects or arrays
-        if (deep && copy && (isPlainObject(copy) || (copyIsArray = Array.isArray(copy)))) {
-          if (copyIsArray) {
-            copyIsArray = false;
-            clone = src && Array.isArray(src) ? src : [];
-          } else {
-            clone = src && isPlainObject(src) ? src : {};
-          }
-
-          // Never move original objects, clone them
-          target[name] = extend(deep, clone, copy);
-
-        // Don't bring in undefined values
-        } else if (copy !== undefined) {
-          target[name] = copy;
-        }
-      }
+    // Handle a deep copy situation
+    if (typeof target === "boolean") {
+        deep = target;
+        target = arguments[1] || {};
+        // skip the boolean and the target
+        i = 2;
+    } else if (typeof target !== "object" && typeof target !== "function" || target == undefined) {
+            target = {};
     }
-  }
 
-  // Return the modified object
-  return target;
+    for (; i < length; ++i) {
+        // Only deal with non-null/undefined values
+        if ((options = arguments[i]) != null) {
+            // Extend the base object
+            for (name in options) {
+                src = target[name];
+                copy = options[name];
+
+                // Prevent never-ending loop
+                if (target === copy) {
+                    continue;
+                }
+
+                // Recurse if we're merging plain objects or arrays
+                if (deep && copy && (isPlainObject(copy) || (copyIsArray = Array.isArray(copy)))) {
+                    if (copyIsArray) {
+                        copyIsArray = false;
+                        clone = src && Array.isArray(src) ? src : [];
+                    } else {
+                        clone = src && isPlainObject(src) ? src : {};
+                    }
+
+                    // Never move original objects, clone them
+                    target[name] = extend(deep, clone, copy);
+
+                // Don't bring in undefined values
+                } else if (copy !== undefined) {
+                    target[name] = copy;
+                }
+            }
+        }
+    }
+
+    // Return the modified object
+    return target;
 };
 
 
@@ -3075,8 +3075,10 @@ function createChannelsContext(socket, objects) {
 
     function createChannel(channelName, options) {
         var nameParts = channelName.split("/");
-        var channel = channels[channelName] = {
+        var key = getChannelKey(channelName, options);
+        var channel = channels[key] = {
             type: nameParts[0],
+            key: key,
             created: false,
             wildcard: channelName.indexOf("*") != -1,
             on: function(eventName, handler) {
@@ -3138,11 +3140,12 @@ function createChannelsContext(socket, objects) {
         }
     }
 
-    function getChannel(name, permissions) {
-        if(!channels[name]) {
-            createChannel(name, permissions);
+    function getChannel(name, options) {
+        var key = getChannelKey(name, options)
+        if(!channels[key]) {
+            createChannel(name, options);
         }
-        return channels[name];
+        return channels[key];
     }
 
     function sendPacket(packet) {
@@ -3171,6 +3174,16 @@ function createChannelsContext(socket, objects) {
         return filtered.map(function(handler) {
             return handler.fn;
         });
+    }
+
+    function getChannelKey(channelName, options) {
+        var nameParts = channelName.split("/");
+        var type = nameParts[0];
+        if(type == "objects") {
+            return channelName + "$" + options;
+        } else {
+            return channelName;
+        }
     }
 
     function addHandler(channelPattern, eventName, handler) {
@@ -3743,8 +3756,9 @@ function createModel(objects, users, channels, socket, hub) {
 function createArrayObserver(name, options, model, objects, channels) {
     var observer = {};
     observer.name = name;
-    observer.collection = name;
+    observer.collection = options.collection || name;
     observer.order = options.order || "-created";
+    observer.filter = options.filter;
     observer.sort = sort;
     observer.load = load;
     observer.connect = connect;
@@ -3793,11 +3807,15 @@ function createArrayObserver(name, options, model, objects, channels) {
     }
 
     function load() {
-        objects.findAll(observer.collection).then(set);
+        if(typeof observer.filter == "string") {
+            objects.find(observer.collection, observer.filter).then(set);
+        } else {
+            objects.findAll(observer.collection).then(set);
+        }
     }
 
     function connect() {
-        var channel = channels.getChannel("objects/" + observer.collection);
+        var channel = channels.getChannel("objects/" + observer.collection, observer.filter);
         channel.on("object.created", function(event) {
             add(event.object);
         });
@@ -3926,7 +3944,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
 /*jslint white: true, browser: true, onevar: true, undef: true, nomen: true,
-  eqeqeq: true, plusplus: true, regexp: true, newcap: true, immed: true */
+    eqeqeq: true, plusplus: true, regexp: true, newcap: true, immed: true */
 // (good parts minus bitwise and strict, plus white.)
 
 /**
@@ -3964,170 +3982,170 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
 module.exports = {
-  create: function(options) {
-    return new Nibbler(options);
-  }
+    create: function(options) {
+        return new Nibbler(options);
+    }
 }
 
 
 var Nibbler = function (options) {
-  "use strict";
+    "use strict";
 
-  // Code quality tools like jshint warn about bitwise operators,
-  // because they're easily confused with other more common operators,
-  // and because they're often misused for doing arithmetic.  Nibbler uses
-  // them properly, though, for moving individual bits, so turn off the warning.
-  /*jshint bitwise:false */
+    // Code quality tools like jshint warn about bitwise operators,
+    // because they're easily confused with other more common operators,
+    // and because they're often misused for doing arithmetic.  Nibbler uses
+    // them properly, though, for moving individual bits, so turn off the warning.
+    /*jshint bitwise:false */
 
-  var construct,
+    var construct,
 
-    // options
-    pad, dataBits, codeBits, keyString, arrayData,
+        // options
+        pad, dataBits, codeBits, keyString, arrayData,
 
-    // private instance variables
-    mask, group, max,
+        // private instance variables
+        mask, group, max,
 
-    // private methods
-    gcd, translate,
+        // private methods
+        gcd, translate,
 
-    // public methods
-    encode, decode;
+        // public methods
+        encode, decode;
 
-  // pseudo-constructor
-  construct = function () {
-    var i, mag, prev;
+    // pseudo-constructor
+    construct = function () {
+        var i, mag, prev;
 
-    // options
-    pad = options.pad || '';
-    dataBits = options.dataBits;
-    codeBits = options.codeBits;
-    keyString = options.keyString;
-    arrayData = options.arrayData;
+        // options
+        pad = options.pad || '';
+        dataBits = options.dataBits;
+        codeBits = options.codeBits;
+        keyString = options.keyString;
+        arrayData = options.arrayData;
 
-    // bitmasks
-    mag = Math.max(dataBits, codeBits);
-    prev = 0;
-    mask = [];
-    for (i = 0; i < mag; i += 1) {
-      mask.push(prev);
-      prev += prev + 1;
-    }
-    max = prev;
+        // bitmasks
+        mag = Math.max(dataBits, codeBits);
+        prev = 0;
+        mask = [];
+        for (i = 0; i < mag; i += 1) {
+            mask.push(prev);
+            prev += prev + 1;
+        }
+        max = prev;
 
-    // ouput code characters in multiples of this number
-    group = dataBits / gcd(dataBits, codeBits);
-  };
-
-  // greatest common divisor
-  gcd = function (a, b) {
-    var t;
-    while (b !== 0) {
-      t = b;
-      b = a % b;
-      a = t;
-    }
-    return a;
-  };
-
-  // the re-coder
-  translate = function (input, bitsIn, bitsOut, decoding) {
-    var i, len, chr, byteIn,
-      buffer, size, output,
-      write;
-
-    // append a byte to the output
-    write = function (n) {
-      if (!decoding) {
-        output.push(keyString.charAt(n));
-      } else if (arrayData) {
-        output.push(n);
-      } else {
-        output.push(String.fromCharCode(n));
-      }
+        // ouput code characters in multiples of this number
+        group = dataBits / gcd(dataBits, codeBits);
     };
 
-    buffer = 0;
-    size = 0;
-    output = [];
-
-    len = input.length;
-    for (i = 0; i < len; i += 1) {
-      // the new size the buffer will be after adding these bits
-      size += bitsIn;
-
-      // read a character
-      if (decoding) {
-        // decode it
-        chr = input.charAt(i);
-        byteIn = keyString.indexOf(chr);
-        if (chr === pad) {
-          break;
-        } else if (byteIn < 0) {
-          throw 'the character "' + chr + '" is not a member of ' + keyString;
+    // greatest common divisor
+    gcd = function (a, b) {
+        var t;
+        while (b !== 0) {
+            t = b;
+            b = a % b;
+            a = t;
         }
-      } else {
-        if (arrayData) {
-          byteIn = input[i];
-        } else {
-          byteIn = input.charCodeAt(i);
+        return a;
+    };
+
+    // the re-coder
+    translate = function (input, bitsIn, bitsOut, decoding) {
+        var i, len, chr, byteIn,
+            buffer, size, output,
+            write;
+
+        // append a byte to the output
+        write = function (n) {
+            if (!decoding) {
+                output.push(keyString.charAt(n));
+            } else if (arrayData) {
+                output.push(n);
+            } else {
+                output.push(String.fromCharCode(n));
+            }
+        };
+
+        buffer = 0;
+        size = 0;
+        output = [];
+
+        len = input.length;
+        for (i = 0; i < len; i += 1) {
+            // the new size the buffer will be after adding these bits
+            size += bitsIn;
+
+            // read a character
+            if (decoding) {
+                // decode it
+                chr = input.charAt(i);
+                byteIn = keyString.indexOf(chr);
+                if (chr === pad) {
+                    break;
+                } else if (byteIn < 0) {
+                    throw 'the character "' + chr + '" is not a member of ' + keyString;
+                }
+            } else {
+                if (arrayData) {
+                    byteIn = input[i];
+                } else {
+                    byteIn = input.charCodeAt(i);
+                }
+                if ((byteIn | max) !== max) {
+                    throw byteIn + " is outside the range 0-" + max;
+                }
+            }
+
+            // shift the buffer to the left and add the new bits
+            buffer = (buffer << bitsIn) | byteIn;
+
+            // as long as there's enough in the buffer for another output...
+            while (size >= bitsOut) {
+                // the new size the buffer will be after an output
+                size -= bitsOut;
+
+                // output the part that lies to the left of that number of bits
+                // by shifting the them to the right
+                write(buffer >> size);
+
+                // remove the bits we wrote from the buffer
+                // by applying a mask with the new size
+                buffer &= mask[size];
+            }
         }
-        if ((byteIn | max) !== max) {
-          throw byteIn + " is outside the range 0-" + max;
+
+        // If we're encoding and there's input left over, pad the output.
+        // Otherwise, leave the extra bits off, 'cause they themselves are padding
+        if (!decoding && size > 0) {
+
+            // flush the buffer
+            write(buffer << (bitsOut - size));
+
+            // add padding string for the remainder of the group
+            while (output.length % group > 0) {
+                output.push(pad);
+            }
         }
-      }
 
-      // shift the buffer to the left and add the new bits
-      buffer = (buffer << bitsIn) | byteIn;
+        // string!
+        return (arrayData && decoding) ? output : output.join('');
+    };
 
-      // as long as there's enough in the buffer for another output...
-      while (size >= bitsOut) {
-        // the new size the buffer will be after an output
-        size -= bitsOut;
+    /**
+     * Encode.  Input and output are strings.
+     */
+    encode = function (input) {
+        return translate(input, dataBits, codeBits, false);
+    };
 
-        // output the part that lies to the left of that number of bits
-        // by shifting the them to the right
-        write(buffer >> size);
+    /**
+     * Decode.  Input and output are strings.
+     */
+    decode = function (input) {
+        return translate(input, codeBits, dataBits, true);
+    };
 
-        // remove the bits we wrote from the buffer
-        // by applying a mask with the new size
-        buffer &= mask[size];
-      }
-    }
-
-    // If we're encoding and there's input left over, pad the output.
-    // Otherwise, leave the extra bits off, 'cause they themselves are padding
-    if (!decoding && size > 0) {
-
-      // flush the buffer
-      write(buffer << (bitsOut - size));
-
-      // add padding string for the remainder of the group
-      while (output.length % group > 0) {
-        output.push(pad);
-      }
-    }
-
-    // string!
-    return (arrayData && decoding) ? output : output.join('');
-  };
-
-  /**
-   * Encode.  Input and output are strings.
-   */
-  encode = function (input) {
-    return translate(input, dataBits, codeBits, false);
-  };
-
-  /**
-   * Decode.  Input and output are strings.
-   */
-  decode = function (input) {
-    return translate(input, codeBits, dataBits, true);
-  };
-
-  this.encode = encode;
-  this.decode = decode;
-  construct();
+    this.encode = encode;
+    this.decode = decode;
+    construct();
 };
 
 },{}],18:[function(_dereq_,module,exports){
@@ -4139,8 +4157,15 @@ var Q           = _dereq_("q");
 
 module.exports = createObjectsContext;
 
-var internalProperties = ["collectionName", "id", "internalId", "username", "created", "updated", "permissions", "save", "saveAll", "remove", "grant", "revoke", "sysCreated", "sysUpdated", "sysPermissions"];
 var nextContextId = 0;
+
+function getInternalProperties(collectionName) {
+    var properties = ["collectionName", "id", "internalId", "created", "updated", "permissions", "save", "saveAll", "remove", "grant", "revoke", "sysCreated", "sysUpdated", "sysPermissions"];
+    if(collectionName == "users") {
+        properties.push("username");
+    }
+    return properties;
+}
 
 function createObjectsContext(apiClient, files, collections) {
     var contextId = nextContextId++;
@@ -4316,6 +4341,7 @@ function createObjectsContext(apiClient, files, collections) {
     function refreshObject(object) {
         var defer = Q.defer();
         var internal = object.internalObject;
+        var internalProperties = getInternalProperties(object.collectionName);
         if(internal.status === "new") {
             defer.resolve(object);
         } else {
@@ -4641,6 +4667,7 @@ function createObjectsContext(apiClient, files, collections) {
     }
 
     function getPropertyNames(object) {
+        var internalProperties = getInternalProperties(object.collectionName);
         var keys = Object.keys(object);
         return keys.filter(function(key) {
             return internalProperties.indexOf(key) == -1;
@@ -4656,6 +4683,7 @@ function createObjectsContext(apiClient, files, collections) {
             }
         });
         var sysValues = object.internalObject.sysValues;
+        var internalProperties = getInternalProperties(object.collectionName);
         Object.keys(sysValues).forEach(function(key) {
             if(internalProperties.indexOf(key) == -1) {
                 data[key] = sysValues[key];
@@ -4744,7 +4772,7 @@ function createObjectsContext(apiClient, files, collections) {
         if(arguments.length < 2) { return; }
         var a1 = arguments[1];
         var a2 = arguments[2];
-        if(typeof a1 === "string" && a1.indexOf("=") == -1) {
+        if(typeof a1 === "string" && a1.indexOf("=") == -1 && a1.indexOf(" ") == -1) {
             return findById(collectionName, a1, a2);
         } else if(typeof a1 === "string") {
             return findByQueryString(collectionName, a1, a2);
@@ -4818,7 +4846,14 @@ function createObjectsContext(apiClient, files, collections) {
     }
 
     function sendFindRequest(url, collectionName, options) {
-        var factory = (options && options.factory) || createObject;
+        var factory = createObject;
+        if(options && options.factory) {
+            factory = options.factory;
+        } else if(options && options.plain) {
+            factory = function(collectionName, properties, factory) {
+                return properties;
+            }
+        }
         var defer = Q.defer();
         apiClient.request("get", url)
                  .then(function(result) {
@@ -4858,6 +4893,7 @@ function createObjectsContext(apiClient, files, collections) {
         if(from == null || to == null) {
             return;
         }
+        var internalProperties = getInternalProperties(from.collectionName);
         Object.keys(from)
               .filter(function(key) {
                   return internalProperties.indexOf(key) == -1;
