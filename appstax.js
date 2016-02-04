@@ -3728,24 +3728,37 @@ function createModel(objects, users, channels, socket, hub) {
         });
     }
 
-    function normalize(object) {
+    function normalize(object, depth) {
         if(!object) {
             return object;
         }
+        var depth = depth || 0;
         var id = object.id;
-        if(!allObjects[id]) {
-            allObjects[id] = object;
+        var normalized = allObjects[id];
+        if(typeof normalized == "undefined") {
+            normalized = allObjects[id] = object;
+        } else {
+            objects.copy(object, normalized);
         }
-        return allObjects[id]
+        if(depth >= 0) {
+            Object.keys(object).forEach(function(key) {
+                var property = object[key];
+                if(typeof property != "undefined" && typeof property.collectionName != "undefined") {
+                    normalized[key] = normalize(property, depth - 1);
+                } else if(Array.isArray(property)) {
+                    property.forEach(function(x, i) {
+                        if(typeof x.collectionName != "undefined") {
+                            normalized[key][i] = normalize(x, depth - 1);
+                        }
+                    });
+                }
+            });
+        }
+        return normalized;
     }
 
-    function updateObject(updated) {
-        var object = allObjects[updated.id];
-        if(object) {
-            objects.copy(updated, object);
-        } else {
-            allObjects[updated.id] = updated;
-        }
+    function updateObject(updated, depth) {
+        normalize(updated, depth);
         observers.forEach(function(observer) {
             observer.sort && observer.sort();
         });
@@ -3759,15 +3772,23 @@ function createArrayObserver(name, options, model, objects, channels) {
     observer.collection = options.collection || name;
     observer.order = options.order || "-created";
     observer.filter = options.filter;
+    observer.expand = options.expand + 0 || undefined;
     observer.sort = sort;
     observer.load = load;
     observer.connect = connect;
+
+    var connectedRelations = {}; // collection:bool
+    var expandedObjects = {}; // id:depth
 
     set([]);
     return observer;
 
     function set(o) {
-        o = o.map(model.normalize);
+        o.map(function(x) {
+            x = model.normalize(x, observer.expand);
+            registerRelations(x);
+            return x;
+        });
         extendArray(o);
         model.root[observer.name] = o;
         sort();
@@ -3780,9 +3801,24 @@ function createArrayObserver(name, options, model, objects, channels) {
 
     function add(o) {
         o = model.normalize(o);
+        registerRelations(o);
         get().push(o);
         observer.sort();
         model.notifyHandlers("change");
+    }
+
+    function update(o) {
+        var depth = expandedObjects[o.id];
+        if(typeof depth != "undefined" && depth > 0) {
+            o.expand(depth).then(_update);
+        } else {
+            _update();
+        }
+
+        function _update() {
+            model.updateObject(o, depth);
+            registerRelations(o);
+        }
     }
 
     function remove(o) {
@@ -3807,10 +3843,11 @@ function createArrayObserver(name, options, model, objects, channels) {
     }
 
     function load() {
+        var options = {expand: observer.expand};
         if(typeof observer.filter == "string") {
-            objects.find(observer.collection, observer.filter).then(set);
+            objects.find(observer.collection, observer.filter, options).then(set);
         } else {
-            objects.findAll(observer.collection).then(set);
+            objects.findAll(observer.collection, options).then(set);
         }
     }
 
@@ -3823,8 +3860,30 @@ function createArrayObserver(name, options, model, objects, channels) {
             remove(event.object);
         });
         channel.on("object.updated", function(event) {
-            model.updateObject(event.object);
+            update(event.object);
         });
+    }
+
+    function connectRelation(collection) {
+        if(!connectedRelations[collection]) {
+            connectedRelations[collection] = true;
+            var channel = channels.getChannel("objects/" + collection);
+            channel.on("object.updated", function(event) {
+                update(event.object);
+            });
+        }
+    }
+
+    function registerRelations(object, depth) {
+        var depth = (typeof depth != "undefined") ? depth : observer.expand || 0;
+
+        expandedObjects[object.id] = depth;
+        if(depth > 0) {
+            objects.getRelatedObjects(object).forEach(function(x) {
+                connectRelation(x.collectionName);
+                registerRelations(x, depth - 1);
+            });
+        }
     }
 
     function extendArray(array) {
@@ -3856,7 +3915,7 @@ function createCurrentUserObserver(model, objects, users, channels, hub) {
     return observer;
 
     function init() {
-        set(null);
+        model.root[observer.name] = null;
         hub.on("users.login", function(event) {
             set(event.user);
         });
@@ -3871,6 +3930,7 @@ function createCurrentUserObserver(model, objects, users, channels, hub) {
     function set(o) {
         o = model.normalize(o);
         model.root[observer.name] = o;
+        model.notifyHandlers("change");
     }
 
     function load() {
@@ -4232,6 +4292,7 @@ function createObjectsContext(apiClient, files, collections) {
         getProperties: getProperties,
         createObject: createObject,
         getObjectStatus: getObjectStatus,
+        getRelatedObjects: getRelatedObjects,
         findAll: findAll,
         find: find,
         search: search,
@@ -4420,20 +4481,18 @@ function createObjectsContext(apiClient, files, collections) {
         if(isUnsaved(object)) {
             throw new Error("Error calling expand() on unsaved object.")
         }
-        var defer = Q.defer();
         var depth = 1;
         if(typeof options === "number") {
             depth = options;
         }
-        findById(object.collectionName, object.id, {expand:depth}).then(function(expanded) {
+        return findById(object.collectionName, object.id, {expand:depth}).then(function(expanded) {
             var internal = object.internalObject;
             var relations = Object.keys(internal.relations);
             relations.forEach(function(relation) {
                 object[relation] = expanded[relation];
             });
-            defer.resolve(object);
+            return Q.resolve(object);
         });
-        return defer.promise;
     }
 
     function markFilesSaved(object) {
