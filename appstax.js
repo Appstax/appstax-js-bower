@@ -3051,7 +3051,97 @@ function createApiClient(options) {
     }
 }
 
-},{"./encoding":10,"./http":14,"./socket":21,"extend":1,"q":4}],8:[function(_dereq_,module,exports){
+},{"./encoding":11,"./http":15,"./socket":23,"extend":1,"q":4}],8:[function(_dereq_,module,exports){
+
+var Q = _dereq_("q");
+
+module.exports = createAuthContext;
+
+function createAuthContext() {
+
+    return {
+        open: open
+    }
+
+    function open() {
+        var popup = openPopup();
+        if(!popup) {
+            throw new Error("Popup blocked");
+        }
+
+        return {
+            run: run
+        }
+
+        function run(options) {
+            return Q.Promise(function(resolve, reject) {
+                var url = options.uri;
+                url = url.replace("{clientId}", encodeURIComponent(options.clientId));
+                url = url.replace("{redirectUri}", encodeURIComponent(options.redirectUri));
+                url = url.replace("{nonce}", generateNonce())
+
+                popup.location.href = url;
+
+                var interval = setInterval(function() {
+                    if(!popup.opener) {
+                        reject(new Error("Authentication cancelled"));
+                        clearInterval(interval);
+                    } else {
+                        var params = getRedirectParams(popup);
+                        if(params) {
+                            popup.close();
+                            resolve({
+                                error: params.error_description,
+                                authCode: params.code,
+                                redirectUri: options.redirectUri
+                            });
+                            clearInterval(interval);
+                        }
+                    }
+                }, 100);
+            });
+        }
+    }
+
+    function generateNonce() {
+        var length = 20;
+        var nonce = "";
+        var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        for(var i = 0; i < length; i++) {
+            nonce += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return nonce;
+    }
+
+    function openPopup(url) {
+        var popup = window.open("", "_blank", "width=800,height=500");
+        if(popup && popup.focus) {
+            popup.focus();
+        }
+        return popup;
+    }
+
+    function getRedirectParams(popup) {
+        try {
+            if(popup.location && typeof popup.location.search == "string" && popup.location.search.length > 0) {
+                var paramString = popup.location.search;
+                if(paramString.indexOf("?") == 0) {
+                    paramString = paramString.replace("?", "");
+                }
+
+                var params = {};
+                paramString.split("&").forEach(function(pair) {
+                    var keyValue = pair.split("=");
+                    params[keyValue[0]] = keyValue[1];
+                });
+
+                return params;
+            }
+        } catch(e) {}
+    }
+}
+
+},{"q":4}],9:[function(_dereq_,module,exports){
 
 module.exports = createChannelsContext;
 
@@ -3230,7 +3320,7 @@ function createChannelsContext(socket, objects) {
 }
 
 
-},{}],9:[function(_dereq_,module,exports){
+},{}],10:[function(_dereq_,module,exports){
 
 module.exports = createCollectionsContext;
 
@@ -3293,7 +3383,7 @@ function createCollectionsContext() {
     }
 }
 
-},{}],10:[function(_dereq_,module,exports){
+},{}],11:[function(_dereq_,module,exports){
 
 var nibbler = _dereq_("./nibbler");
 
@@ -3319,7 +3409,7 @@ module.exports = {
     }
 }
 
-},{"./nibbler":17}],11:[function(_dereq_,module,exports){
+},{"./nibbler":18}],12:[function(_dereq_,module,exports){
 
 module.exports = {
     log: function(error) {
@@ -3337,7 +3427,7 @@ module.exports = {
     }
 }
 
-},{}],12:[function(_dereq_,module,exports){
+},{}],13:[function(_dereq_,module,exports){
 
 var extend      = _dereq_("extend");
 var objects     = _dereq_("./objects");
@@ -3348,6 +3438,7 @@ var apiClient   = _dereq_("./apiclient");
 var request     = _dereq_("./request");
 var channels    = _dereq_("./channels");
 var models      = _dereq_("./models");
+var auth        = _dereq_("./auth");
 var createHub   = _dereq_("./hub");
 
 var defaults = {
@@ -3380,10 +3471,11 @@ function createContext(options) {
 
         // init modules
         context.apiClient   = apiClient({baseUrl: config.baseUrl, appKey: config.appKey, log: config.log});
+        context.auth        = auth();
         context.files       = files(context.apiClient);
         context.collections = collections();
         context.objects     = objects(context.apiClient, context.files, context.collections);
-        context.users       = users(context.apiClient, context.objects, hub);
+        context.users       = users(context.apiClient, context.auth, context.objects, hub);
         context.request     = request(context.apiClient)
         context.channels    = channels(context.apiClient.socket(), context.objects);
         context.models      = models(context.objects, context.users, context.channels, context.apiClient.socket(), hub);
@@ -3403,6 +3495,7 @@ function createContext(options) {
         context.sessionId   = context.apiClient.sessionId;
         context.channel     = context.channels.getChannel;
         context.model       = context.models.create;
+        context.disconnect  = function() { context.apiClient.socket().disconnect(); }
     }
 }
 
@@ -3413,7 +3506,7 @@ function log(level, message) {
 }
 
 
-},{"./apiclient":7,"./channels":8,"./collections":9,"./files":13,"./hub":15,"./models":16,"./objects":18,"./request":20,"./users":22,"extend":1}],13:[function(_dereq_,module,exports){
+},{"./apiclient":7,"./auth":8,"./channels":9,"./collections":10,"./files":14,"./hub":16,"./models":17,"./objects":20,"./request":22,"./users":24,"extend":1}],14:[function(_dereq_,module,exports){
 
 var Q         = _dereq_("q");
 var extend    = _dereq_("extend");
@@ -3576,7 +3669,7 @@ function createFilesContext(apiClient) {
     }
 }
 
-},{"extend":1,"q":4}],14:[function(_dereq_,module,exports){
+},{"extend":1,"q":4}],15:[function(_dereq_,module,exports){
 
 var extend  = _dereq_("extend");
 var Q       = _dereq_("q");
@@ -3639,7 +3732,7 @@ function errorFromXhr(xhr) {
     return new Error(xhr.responseText);
 }
 
-},{"extend":1,"q":4,"reqwest":5}],15:[function(_dereq_,module,exports){
+},{"extend":1,"q":4,"reqwest":5}],16:[function(_dereq_,module,exports){
 
 var extend = _dereq_("extend");
 
@@ -3671,7 +3764,9 @@ function createHub() {
     }
 }
 
-},{"extend":1}],16:[function(_dereq_,module,exports){
+},{"extend":1}],17:[function(_dereq_,module,exports){
+
+var createNormalizer = _dereq_("./normalizer");
 
 module.exports = createModelContext;
 
@@ -3686,7 +3781,7 @@ function createModelContext(objects, users, channels, socket, hub) {
 function createModel(objects, users, channels, socket, hub) {
     var observers = [];
     var handlers = [];
-    var allObjects = {};
+    var normalizer = createNormalizer(objects);
 
     var api = {
         watch: addObserver,
@@ -3729,32 +3824,7 @@ function createModel(objects, users, channels, socket, hub) {
     }
 
     function normalize(object, depth) {
-        if(!object) {
-            return object;
-        }
-        var depth = depth || 0;
-        var id = object.id;
-        var normalized = allObjects[id];
-        if(typeof normalized == "undefined") {
-            normalized = allObjects[id] = object;
-        } else {
-            objects.copy(object, normalized);
-        }
-        if(depth >= 0) {
-            Object.keys(object).forEach(function(key) {
-                var property = object[key];
-                if(typeof property != "undefined" && typeof property.collectionName != "undefined") {
-                    normalized[key] = normalize(property, depth - 1);
-                } else if(Array.isArray(property)) {
-                    property.forEach(function(x, i) {
-                        if(typeof x.collectionName != "undefined") {
-                            normalized[key][i] = normalize(x, depth - 1);
-                        }
-                    });
-                }
-            });
-        }
-        return normalized;
+        return normalizer.normalize(object, depth);
     }
 
     function updateObject(updated, depth) {
@@ -3802,9 +3872,19 @@ function createArrayObserver(name, options, model, objects, channels) {
     function add(o) {
         o = model.normalize(o);
         registerRelations(o);
-        get().push(o);
-        observer.sort();
-        model.notifyHandlers("change");
+
+        var depth = expandedObjects[o.id];
+        if(typeof depth != "undefined" && depth > 0) {
+            o.expand(depth).then(_add);
+        } else {
+            _add();
+        }
+
+        function _add() {
+            get().push(o);
+            observer.sort();
+            model.notifyHandlers("change");
+        }
     }
 
     function update(o) {
@@ -3978,7 +4058,7 @@ function createConnectionStatusObserver(model, socket) {
     }
 }
 
-},{}],17:[function(_dereq_,module,exports){
+},{"./normalizer":19}],18:[function(_dereq_,module,exports){
 /*
 Copyright (c) 2010-2013 Thomas Peri
 http://www.tumuski.com/
@@ -4208,7 +4288,72 @@ var Nibbler = function (options) {
     construct();
 };
 
-},{}],18:[function(_dereq_,module,exports){
+},{}],19:[function(_dereq_,module,exports){
+
+
+
+module.exports = create;
+
+function create(objects) {
+
+    var allObjects = {};
+
+    return {
+        normalize: normalize
+    }
+
+    function normalize(object, depth) {
+        if(object === undefined || object === null || typeof object.id == "undefined") {
+            return object;
+        }
+
+        depth = depth || 0;
+        if(!allObjects[object.id]) {
+            allObjects[object.id] = object;
+        } else {
+            updateValues(allObjects[object.id], object, depth);
+        }
+        updateRelations(allObjects[object.id], object, depth);
+        return allObjects[object.id];
+    }
+
+    function updateValues(existing, object) {
+        var existingTime = existing.updated.getTime();
+        var objectTime = object.updated.getTime();
+        if(isNaN(objectTime) || objectTime >= existingTime) {
+            objects.copy(object, existing);
+        }
+    }
+
+    function updateRelations(existing, object, depth) {
+        if(depth >= 0) {
+            Object.keys(object).forEach(function(key) {
+                var property = object[key];
+                if(typeof property != "undefined" && typeof property.collectionName != "undefined") {
+                    existing[key] = normalize(property, depth - 1);
+                } else if(typeof property == "string" && typeof allObjects[property] == "object") {
+                    try {
+                        existing[key] = allObjects[property];
+                    } catch(error) {}
+                } else if(Array.isArray(property)) {
+                    property.forEach(function(x, i) {
+                        if(typeof x.collectionName != "undefined") {
+                            existing[key][i] = normalize(x, depth - 1);
+                        } else if(typeof x == "string" && typeof allObjects[x] == "object") {
+                            existing[key][i] = allObjects[x];
+                        }
+                    });
+                }
+            });
+        }
+    }
+
+
+
+}
+
+
+},{}],20:[function(_dereq_,module,exports){
 
 var extend      = _dereq_("extend");
 var query       = _dereq_("./query");
@@ -4991,7 +5136,7 @@ function createObjectsContext(apiClient, files, collections) {
     }
 }
 
-},{"./faillogger":11,"./query":19,"extend":1,"q":4}],19:[function(_dereq_,module,exports){
+},{"./faillogger":12,"./query":21,"extend":1,"q":4}],21:[function(_dereq_,module,exports){
 
 module.exports = function(options) {
 
@@ -5056,7 +5201,7 @@ module.exports = function(options) {
 
 };
 
-},{}],20:[function(_dereq_,module,exports){
+},{}],22:[function(_dereq_,module,exports){
 
 
 module.exports = createRequestContext;
@@ -5070,7 +5215,7 @@ function createRequestContext(apiClient) {
     }
 }
 
-},{}],21:[function(_dereq_,module,exports){
+},{}],23:[function(_dereq_,module,exports){
 
 var Q  = _dereq_("q");
 var WS = _dereq_("ws");
@@ -5131,8 +5276,9 @@ function createSocket(apiClient) {
 
     function disconnect() {
         clearInterval(connectionIntervalId);
+        connectionIntervalId = null;
         webSocket && webSocket.close();
-        realtimeSessionPromise = null;
+        setStatus("disconnected");
     }
 
     function connect() {
@@ -5221,7 +5367,7 @@ function createSocket(apiClient) {
 
 }
 
-},{"q":4,"ws":6}],22:[function(_dereq_,module,exports){
+},{"q":4,"ws":6}],24:[function(_dereq_,module,exports){
 
 var extend    = _dereq_("extend");
 var Q         = _dereq_("q");
@@ -5230,7 +5376,7 @@ module.exports = createUsersContext;
 
 var internalProperties = ["id", "username", "save"];
 
-function createUsersContext(apiClient, objects, hub) {
+function createUsersContext(apiClient, auth, objects, hub) {
 
     var currentUser = null;
 
@@ -5282,7 +5428,63 @@ function createUsersContext(apiClient, objects, hub) {
         return defer.promise;
     }
 
-    function login(username, password) {
+    function login(arg1, arg2) {
+        if(typeof arg1 == "object" && typeof arg1.provider == "string") {
+            return loginWithProvider(arg1.provider);
+        } else {
+            return loginWithUsername(arg1, arg2);
+        }
+    }
+
+    function loginWithProvider(provider) {
+        var dialog = auth.open();
+        return (
+            getProviderConfig(provider)
+                .then(dialog.run)
+                .then(_sendResult)
+        )
+
+        function _sendResult(authResult) {
+            if(authResult.error) {
+                throw new Error(authResult.error);
+            }
+            var url = apiClient.url("/sessions");
+            var data = {
+                sysProvider: {
+                    type: provider,
+                    data: {
+                        code: authResult.authCode,
+                        redirectUri: authResult.redirectUri
+                    }
+                }
+            }
+            return apiClient.request("post", url, data)
+                            .then(function(loginResult) {
+                                handleSignupOrLoginSuccess(undefined, loginResult);
+                                hub.pub("users.login", {user: currentUser});
+                                return currentUser;
+                            });
+        }
+    }
+
+    function getProviderConfig(provider) {
+        var url = apiClient.url("/sessions/providers/:provider", {provider: provider});
+        return apiClient.request("get", url).then(function(config) {
+            config.type = "oauth";
+            config.redirectUri = window.location.href.split("#")[0];
+            switch(provider) {
+                case "facebook":
+                    config.uri = "https://www.facebook.com/dialog/oauth?display=popup&client_id={clientId}&redirect_uri={redirectUri}";
+                    break;
+                case "google":
+                    config.uri = "https://accounts.google.com/o/oauth2/v2/auth?client_id={clientId}&redirect_uri={redirectUri}&nonce={nonce}&response_type=code&scope=profile+email"
+                    break;
+            }
+            return config;
+        });
+    }
+
+    function loginWithUsername(username, password) {
         var defer = Q.defer();
         var url = apiClient.url("/sessions");
         apiClient.request("post", url, {sysUsername:username, sysPassword:password})
@@ -5299,6 +5501,7 @@ function createUsersContext(apiClient, objects, hub) {
 
     function handleSignupOrLoginSuccess(username, result) {
         var id = result.user ? result.user.sysObjectId : null;
+        username = username || (result.user ? result.user.sysUsername : undefined);
         storeSession(result.sysSessionId, username, id);
         currentUser = createUser(username, result.user);
         return currentUser;
@@ -5358,6 +5561,6 @@ function createUsersContext(apiClient, objects, hub) {
 }
 
 
-},{"extend":1,"q":4}]},{},[12])
-(12)
+},{"extend":1,"q":4}]},{},[13])
+(13)
 });
