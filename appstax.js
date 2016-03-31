@@ -3481,21 +3481,23 @@ function createContext(options) {
         context.models      = models(context.objects, context.users, context.channels, context.apiClient.socket(), hub);
 
         // expose shortcuts
-        context.object      = context.objects.createObject;
-        context.status      = context.objects.getObjectStatus;
-        context.findAll     = context.objects.findAll;
-        context.find        = context.objects.find;
-        context.search      = context.objects.search;
-        context.signup      = context.users.signup;
-        context.login       = context.users.login;
-        context.logout      = context.users.logout;
-        context.currentUser = context.users.currentUser;
-        context.collection  = context.collections.collection;
-        context.file        = context.files.createFile;
-        context.sessionId   = context.apiClient.sessionId;
-        context.channel     = context.channels.getChannel;
-        context.model       = context.models.create;
-        context.disconnect  = function() { context.apiClient.socket().disconnect(); }
+        context.object               = context.objects.createObject;
+        context.status               = context.objects.getObjectStatus;
+        context.findAll              = context.objects.findAll;
+        context.find                 = context.objects.find;
+        context.search               = context.objects.search;
+        context.signup               = context.users.signup;
+        context.login                = context.users.login;
+        context.logout               = context.users.logout;
+        context.currentUser          = context.users.currentUser;
+        context.requestPasswordReset = context.users.requestPasswordReset;
+        context.changePassword       = context.users.changePassword;
+        context.collection           = context.collections.collection;
+        context.file                 = context.files.createFile;
+        context.sessionId            = context.apiClient.sessionId;
+        context.channel              = context.channels.getChannel;
+        context.model                = context.models.create;
+        context.disconnect           = function() { context.apiClient.socket().disconnect(); }
     }
 }
 
@@ -5386,6 +5388,8 @@ function createUsersContext(apiClient, auth, objects, hub) {
         signup: signup,
         login: login,
         logout: logout,
+        requestPasswordReset: requestPasswordReset,
+        changePassword: changePassword,
         currentUser: function() { return currentUser; }
     };
 
@@ -5474,7 +5478,7 @@ function createUsersContext(apiClient, auth, objects, hub) {
             config.redirectUri = window.location.href.split("#")[0];
             switch(provider) {
                 case "facebook":
-                    config.uri = "https://www.facebook.com/dialog/oauth?display=popup&client_id={clientId}&redirect_uri={redirectUri}";
+                    config.uri = "https://www.facebook.com/dialog/oauth?display=popup&client_id={clientId}&redirect_uri={redirectUri}&scope=public_profile,email";
                     break;
                 case "google":
                     config.uri = "https://accounts.google.com/o/oauth2/v2/auth?client_id={clientId}&redirect_uri={redirectUri}&nonce={nonce}&response_type=code&scope=profile+email"
@@ -5514,6 +5518,32 @@ function createUsersContext(apiClient, auth, objects, hub) {
             localStorage.removeItem("appstax_session_" + apiClient.appKey());
         }
         hub.pub("users.logout");
+    }
+
+    function requestPasswordReset(email) {
+        var url = apiClient.url("/users/reset/email");
+        return apiClient.request("post", url, {email: email})
+            .then(function() {
+                return undefined;
+            });
+    }
+
+    function changePassword(options) {
+        var url = apiClient.url("/users/reset/password");
+        var data = {
+            username: options.username,
+            password: options.password,
+            pinCode:  options.code,
+            login:    options.login || false
+        }
+        return apiClient.request("post", url, data)
+            .then(function(result) {
+                if(data.login) {
+                    return handleSignupOrLoginSuccess(undefined, result);
+                } else {
+                    return undefined;
+                }
+            });
     }
 
     function storeSession(sessionId, username, id) {
