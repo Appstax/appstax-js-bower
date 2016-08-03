@@ -3787,7 +3787,9 @@ function createModel(objects, users, channels, socket, hub) {
 
     var api = {
         watch: addObserver,
-        on: addHandler
+        on: addHandler,
+        save: saveObject,
+        observable: function(o) { return createObservable(api, o, objects) }
     }
     var model = {
         root: api,
@@ -3835,6 +3837,11 @@ function createModel(objects, users, channels, socket, hub) {
             observer.sort && observer.sort();
         });
         notifyHandlers("change");
+    }
+
+    function saveObject(object) {
+        notifyHandlers("change");
+        return object.save();
     }
 }
 
@@ -4057,6 +4064,42 @@ function createConnectionStatusObserver(model, socket) {
 
     function connect() {
 
+    }
+}
+
+function createObservable(model, Observable, objects) {
+    var root = Observable({});
+    model.on("change", update);
+
+    update();
+    return root;
+
+    function update() {
+        var values = {};
+        keys().forEach(function(k) {
+            var v = root.value[k]
+            if(typeof v == "undefined") {
+                v = Observable();
+            }
+            v.replaceAll(model[k]);
+            values[k] = v;
+        });
+        root.value = values;
+    }
+
+    function compareObjects(o1, o2) {
+        return o1.id == o2.id;
+    }
+
+    function updateObject(oldObject, newObject) {}
+
+    function mapObject(newObject) {
+        return newObject;
+    }
+
+    function keys() {
+        return Object.keys(model)
+                     .filter(function(k) { return typeof model[k] != "function" });
     }
 }
 
@@ -4963,6 +5006,25 @@ function createObjectsContext(apiClient, files, collections) {
             parameters.expanddepth = options.expand;
         } else if(options.expand === true) {
             parameters.expanddepth = 1;
+        }
+
+        if(typeof options.order === "string") {
+            var startPos = 0
+            parameters.sortorder = "asc"
+            if(options.order.indexOf("-") == 0) {
+                parameters.sortorder = "desc"
+                startPos = 1
+            }
+            parameters.sortcolumn = options.order.substring(startPos, options.order.length);
+        }
+
+        if(typeof options.page === "number") {
+            parameters.paging = "yes";
+            parameters.pagenum = options.page;
+        }
+        if(typeof options.pageSize === "number") {
+            parameters.paging = "yes";
+            parameters.pagelimit = options.pageSize;
         }
         return parameters;
     }
